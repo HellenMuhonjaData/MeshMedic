@@ -1,0 +1,512 @@
+<title>MeshMedic Command Center</title>
+<style>
+  /* ============================================================
+     SINGLE COLOR CONFIG — this :root block (and its dark-mode
+     mirrors below) is the ONLY place color values live. When
+     MeshMedic brand colors are chosen, change them here only.
+     ============================================================ */
+  :root{
+    --bg:#F6F7F8;
+    --surface:#FFFFFF;
+    --surface-alt:#EEF0F3;
+    --line:#DCE0E6;
+    --ink:#171A1F;
+    --ink-soft:#4B515C;
+    --ink-faint:#868D99;
+    --accent:#2C4A9B;
+    --accent-ink:#FFFFFF;
+    --accent-soft:#E7EBF6;
+    --good:#1E8E5A;      --good-soft:#E4F5EC;
+    --warn:#A8720A;      --warn-soft:#FBF0DC;
+    --critical:#B33A34;  --critical-soft:#FBE8E6;
+    --unknown:#9AA1AC;   --unknown-soft:#ECEEF1;
+    --sample:#6E4BA6;    --sample-soft:#F1ECFA;
+    --shadow: 0 1px 2px rgba(23,26,31,.05), 0 8px 24px -12px rgba(23,26,31,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#10131A; --surface:#171B23; --surface-alt:#1E232D; --line:#2B313D;
+      --ink:#EDEFF3; --ink-soft:#B4BAC5; --ink-faint:#767E8C;
+      --accent:#7C9AEF; --accent-ink:#0E1320; --accent-soft:#1E2A4A;
+      --good:#43C787;   --good-soft:#123423;
+      --warn:#E0A83B;   --warn-soft:#3A2C0F;
+      --critical:#E2726C; --critical-soft:#3D1917;
+      --unknown:#6B7280; --unknown-soft:#252A33;
+      --sample:#B393E0; --sample-soft:#2E2440;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#10131A; --surface:#171B23; --surface-alt:#1E232D; --line:#2B313D;
+    --ink:#EDEFF3; --ink-soft:#B4BAC5; --ink-faint:#767E8C;
+    --accent:#7C9AEF; --accent-ink:#0E1320; --accent-soft:#1E2A4A;
+    --good:#43C787;   --good-soft:#123423;
+    --warn:#E0A83B;   --warn-soft:#3A2C0F;
+    --critical:#E2726C; --critical-soft:#3D1917;
+    --unknown:#6B7280; --unknown-soft:#252A33;
+    --sample:#B393E0; --sample-soft:#2E2440;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family: "Segoe UI","-apple-system","Helvetica Neue",Arial,sans-serif;
+    font-size:15px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,.serif{
+    font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    text-wrap:balance; margin:0;
+  }
+  .mono, .tabular{ font-family:"Cascadia Code",Consolas,"SF Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+  a{color:inherit;}
+  ::selection{ background:var(--accent-soft); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+
+  .topbar{
+    position:sticky; top:0; z-index:10;
+    display:flex; align-items:center; gap:16px;
+    padding:14px 24px; background:var(--surface); border-bottom:1px solid var(--line);
+  }
+  .wordmark{ display:flex; align-items:baseline; gap:8px; }
+  .wordmark .name{ font-size:19px; font-weight:600; letter-spacing:-.01em; }
+  .wordmark .tag{ font-size:12px; color:var(--ink-faint); letter-spacing:.02em; }
+  .release-pill{
+    font-size:12px; padding:4px 10px; border-radius:999px;
+    background:var(--surface-alt); color:var(--ink-soft); border:1px solid var(--line);
+    white-space:nowrap;
+  }
+  .spacer{flex:1;}
+
+  .mode-toggle{ display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .mode-toggle button{
+    appearance:none; border:0; background:var(--surface); color:var(--ink-soft);
+    font:inherit; font-size:12.5px; font-weight:600; letter-spacing:.02em;
+    padding:7px 14px; cursor:pointer;
+  }
+  .mode-toggle button.active{ background:var(--accent); color:var(--accent-ink); }
+  .mode-toggle button:not(.active):hover{ background:var(--surface-alt); }
+
+  .shell{ display:flex; align-items:flex-start; }
+  .sidenav{
+    width:236px; flex:none; padding:20px 12px; position:sticky; top:53px;
+    height:calc(100vh - 53px); overflow-y:auto;
+    border-right:1px solid var(--line);
+  }
+  .sidenav .group-label{
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint);
+    padding:6px 12px; margin-top:4px;
+  }
+  .sidenav a{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    text-decoration:none; font-size:13.5px; color:var(--ink-soft);
+    padding:8px 12px; border-radius:8px; margin:1px 0;
+  }
+  .sidenav a:hover{ background:var(--surface-alt); color:var(--ink); }
+  .sidenav a.active{ background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  .sidenav a .soon{ font-size:10px; color:var(--ink-faint); font-weight:500; }
+
+  main{ flex:1; min-width:0; padding:28px 32px 80px; max-width:1120px; }
+
+  .sample-banner{
+    display:flex; align-items:center; gap:10px;
+    background:var(--sample-soft); color:var(--sample); border:1px solid var(--sample);
+    border-radius:10px; padding:10px 14px; font-size:13px; font-weight:600;
+    margin-bottom:22px;
+  }
+  .sample-banner .dot{ width:7px; height:7px; border-radius:999px; background:var(--sample); flex:none; }
+
+  .hero{ margin-bottom:28px; }
+  .hero h1{ font-size:26px; margin-bottom:6px; }
+  .hero p{ color:var(--ink-soft); max-width:62ch; font-size:15px; margin:0; }
+
+  .grid{ display:grid; grid-template-columns:repeat(12,1fr); gap:16px; }
+  .card{
+    grid-column:span 4; background:var(--surface); border:1px solid var(--line);
+    border-radius:14px; padding:18px 20px; box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:10px; min-width:0;
+  }
+  .card.span-6{ grid-column:span 6; }
+  .card.span-8{ grid-column:span 8; }
+  .card.span-12{ grid-column:span 12; }
+  .card-label{ font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--ink-faint); font-weight:600; }
+  .card h3{ font-size:15px; }
+  .card .big{ font-size:30px; font-weight:600; letter-spacing:-.01em; }
+  .card .sub{ font-size:12.5px; color:var(--ink-faint); }
+
+  .badge{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:999px; }
+  .badge.sample{ background:var(--sample-soft); color:var(--sample); }
+  .badge.good{ background:var(--good-soft); color:var(--good); }
+  .badge.warn{ background:var(--warn-soft); color:var(--warn); }
+  .badge.critical{ background:var(--critical-soft); color:var(--critical); }
+  .badge.unknown{ background:var(--unknown-soft); color:var(--unknown); }
+
+  .status-row{ display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-top:1px solid var(--line); font-size:13.5px; }
+  .status-row:first-of-type{ border-top:none; }
+  .status-row .name{ display:flex; align-items:center; gap:9px; }
+  .dot{ width:8px; height:8px; border-radius:999px; flex:none; }
+  .dot.unknown{ background:var(--unknown); }
+  .dot.good{ background:var(--good); }
+  .dot.critical{ background:var(--critical); }
+  .status-row .meta{ color:var(--ink-faint); font-size:12px; }
+
+  .bar-track{ height:8px; border-radius:999px; background:var(--surface-alt); overflow:hidden; }
+  .bar-fill{ height:100%; background:var(--accent); border-radius:999px; }
+
+  .progress-line{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--ink-faint); }
+
+  .req-chip-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .req-chip{ font-size:12px; padding:4px 10px; border-radius:8px; background:var(--surface-alt); color:var(--ink-soft); border:1px solid var(--line); }
+  .req-chip b{ color:var(--ink); }
+
+  .guardrail-row{ display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
+  .guardrail-row:first-of-type{ border-top:none; }
+  .guardrail-row .rid{ font-size:11px; color:var(--ink-faint); flex:none; width:52px; padding-top:2px; }
+  .guardrail-row .txt{ font-size:13px; color:var(--ink-soft); flex:1; }
+
+  .sparkline-wrap{ display:flex; flex-direction:column; gap:6px; }
+  .empty-state{
+    border:1px dashed var(--line); border-radius:10px; padding:16px;
+    color:var(--ink-faint); font-size:13px; text-align:center;
+  }
+
+  .owner-list{ display:flex; flex-direction:column; gap:2px; }
+
+  .stub{ max-width:64ch; }
+  .stub h2{ font-size:22px; margin-bottom:10px; }
+  .stub .lede{ color:var(--ink-soft); margin-bottom:18px; }
+  .stub .not-built{
+    display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600;
+    color:var(--ink-faint); background:var(--surface-alt); border:1px solid var(--line);
+    border-radius:999px; padding:6px 12px;
+  }
+
+  footer.foot{
+    margin-top:36px; padding-top:18px; border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    font-size:12px; color:var(--ink-faint);
+  }
+
+  @media (max-width: 880px){
+    .shell{ flex-direction:column; }
+    .sidenav{ position:static; width:100%; height:auto; border-right:none; border-bottom:1px solid var(--line); }
+    .card{ grid-column:span 12 !important; }
+    main{ padding:20px; }
+  }
+</style>
+
+<div id="app">
+  <header class="topbar">
+    <div class="wordmark">
+      <span class="name serif">MeshMedic</span>
+      <span class="tag">Command Center</span>
+    </div>
+    <span class="release-pill mono" id="release-pill"></span>
+    <div class="spacer"></div>
+    <div class="mode-toggle" role="group" aria-label="Data mode">
+      <button id="btn-sample" onclick="setMode('sample')">Sample</button>
+      <button id="btn-real" onclick="setMode('real')">Real</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="sidenav" id="sidenav"></nav>
+    <main id="view"></main>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   DATA — single source of truth for the whole Command Center.
+   Every tab reads from this object. Nothing that renders below
+   should hardcode a number that isn't sourced from here.
+   When the real backend exists, this block is replaced by a
+   fetch() to it — the render functions do not need to change.
+   ============================================================ */
+const DATA = {
+  project: {
+    name: "MeshMedic",
+    tagline: "AI-powered clinical documentation and workflow copilot for healthcare professionals.",
+    demoDay: "2026-10-08",
+    buildEnd: "2026-10-01",
+  },
+  requirements: [
+    {id:"REQ-001",cat:"FUNC",priority:"must",text:"Process patient encounter conversations to generate structured clinical notes."},
+    {id:"REQ-002",cat:"FUNC",priority:"must",text:"Suggest appropriate ICD-10 and CPT codes based on encounter data."},
+    {id:"REQ-003",cat:"FUNC",priority:"must",text:"Identify potential gaps in care from encounter data."},
+    {id:"REQ-004",cat:"FUNC",priority:"must",text:"Prepare follow-up documentation such as referral letters for clinician review."},
+    {id:"REQ-005",cat:"FUNC",priority:"must",text:"Allow clinicians to review, edit, approve, or reject AI-generated notes, codes, and recommendations."},
+    {id:"REQ-006",cat:"SAFE",priority:"must",text:"Maintain an auditable history of AI recommendations and clinician actions."},
+    {id:"REQ-007",cat:"FUNC",priority:"must",text:"Provide clear explanations for its recommendations, including source citations."},
+    {id:"REQ-008",cat:"FUNC",priority:"must",text:"Flag low-confidence sections with a visual warning and explanation."},
+    {id:"REQ-009",cat:"FUNC",priority:"must",text:"Retrieve and return authorized patient information through EHR systems using FHIR APIs."},
+    {id:"REQ-010",cat:"CONSTRAINT",priority:"must",text:"Remain EHR-agnostic while integrating with Epic and Oracle Health/Cerner."},
+    {id:"REQ-011",cat:"SAFE",priority:"must",text:"Protect PHI and ensure privacy and security compliance."},
+    {id:"REQ-012",cat:"NFR",priority:"must",text:"Reduce documentation time to under 2 minutes of review per note."},
+    {id:"REQ-013",cat:"FUNC",priority:"must",text:"Distinguish between encounter-supported and AI-generated information."},
+    {id:"REQ-014",cat:"SAFE",priority:"must",text:"Not execute clinical decisions or actions without clinician approval."},
+    {id:"REQ-015",cat:"CONSTRAINT",priority:"must",text:"Use ambient audio recordings and text transcripts as input for note generation."},
+    {id:"REQ-016",cat:"CONSTRAINT",priority:"must",text:"Access patient demographics and problem list/history from EHRs."},
+    {id:"REQ-017",cat:"FUNC",priority:"should",text:"Provide a visual interface for clinicians to interact with AI-generated content."},
+    {id:"REQ-018",cat:"SAFE",priority:"must",text:"Support healthcare compliance standards relevant to clinical documentation."},
+  ],
+  releases: [
+    {id:"r0", name:"Initial Skeleton", start:"2026-08-11", end:"2026-08-18",
+      stories:[
+        {id:"STORY-001", title:"Generate and approve AI clinical notes", due:"2026-08-11", owner:"Clinician", done:false},
+        {id:"STORY-002", title:"Maintain auditable history of actions", due:"2026-08-15", owner:"Compliance Officer", done:false},
+        {id:"STORY-003", title:"Flag low-confidence AI recommendations", due:"2026-08-18", owner:"Clinician", done:false},
+      ]},
+    {id:"r1", name:"Advanced Coding and Care Gap", start:"2026-08-24", end:"2026-08-29",
+      stories:[
+        {id:"STORY-004", title:"Suggest ICD-10 and CPT codes", due:"2026-08-24", owner:"Clinician", done:false},
+        {id:"STORY-005", title:"Identify and flag care gaps", due:"2026-08-29", owner:"Clinician", done:false},
+      ]},
+    {id:"r2", name:"EHR Integration", start:"2026-09-09", end:"2026-09-09",
+      stories:[
+        {id:"STORY-006", title:"Integrate with EHR systems using FHIR APIs", due:"2026-09-09", owner:"System Integrator", done:false},
+      ]},
+    {id:"r3", name:"Recommendation Transparency", start:"2026-09-15", end:"2026-09-20",
+      stories:[
+        {id:"STORY-007", title:"Provide source citations for AI recommendations", due:"2026-09-15", owner:"Clinician", done:false},
+        {id:"STORY-008", title:"Indicate AI recommendation confidence", due:"2026-09-20", owner:"Clinician", done:false},
+      ]},
+    {id:"r4", name:"Efficiency and Compliance", start:"2026-09-23", end:"2026-10-01",
+      stories:[
+        {id:"STORY-009", title:"Optimize documentation time", due:"2026-09-23", owner:"Clinician", done:false},
+        {id:"STORY-010", title:"Ensure compliance with healthcare standards", due:"2026-09-26", owner:"Compliance Officer", done:false},
+        {id:"STORY-011", title:"Prepare follow-up documentation for clinician review", due:"2026-09-28", owner:"Clinical Documentation System", done:false},
+        {id:"STORY-012", title:"Distinguish between encounter-supported and AI-generated information", due:"2026-10-01", owner:"Clinical Decision Support System", done:false},
+      ]},
+  ],
+  systems: [
+    {name:"EHR", status:"unknown", lastChecked:null},
+    {name:"Epic", status:"unknown", lastChecked:null},
+    {name:"Oracle Health", status:"unknown", lastChecked:null},
+    {name:"Cerner", status:"unknown", lastChecked:null},
+    {name:"EHRs", status:"unknown", lastChecked:null},
+  ],
+  guardrails: [
+    {req:"REQ-006", text:"Maintain an auditable history of AI recommendations and clinician actions.", enforced:false, note:"No audit log exists yet — nothing has been built."},
+    {req:"REQ-011", text:"Protect PHI and ensure privacy and security compliance.", enforced:false, note:"No PHI handling code exists yet."},
+    {req:"REQ-014", text:"Not execute clinical decisions or actions without clinician approval.", enforced:false, note:"No AI action pathway exists yet — nothing to gate."},
+    {req:"REQ-018", text:"Support healthcare compliance standards relevant to clinical documentation.", enforced:false, note:"No compliance mapping implemented yet."},
+  ],
+  owners: [
+    {name:"Clinician", stories:["STORY-001","STORY-003","STORY-004","STORY-005","STORY-007","STORY-008","STORY-009"]},
+    {name:"Compliance Officer", stories:["STORY-002","STORY-010"]},
+    {name:"System Integrator", stories:["STORY-006"]},
+    {name:"Clinical Documentation System", stories:["STORY-011"]},
+    {name:"Clinical Decision Support System", stories:["STORY-012"]},
+  ],
+  outcomes: {
+    "REQ-012": {
+      metric: "Documentation review time per note",
+      target: "< 2 min",
+      real: null, // no measurements exist yet
+      sample: [6.4, 6.0, 5.3, 4.6, 3.9, 3.1, 2.4, 1.9], // illustrative only — never shown in Real mode
+    }
+  }
+};
+
+const TABS = [
+  {id:"overview", label:"Overview", built:true},
+  {id:"outcomes", label:"Outcomes", built:false, blurb:"The numbers this has to move — starting with REQ-012, review time per note. Ships once timing telemetry exists (r4 · STORY-009)."},
+  {id:"users", label:"Users and use case", built:false, blurb:"Who this is for and what they're trying to get done, drawn from the clinician, compliance officer, and system integrator stories."},
+  {id:"guardrails", label:"Guardrails", built:false, blurb:"What must never happen, and whether the build currently enforces it. See the Guardrails card on Overview for the live list."},
+  {id:"systems", label:"Systems", built:false, blurb:"One row per connected system — EHR, Epic, Oracle Health, Cerner — with a live connected/not-connected indicator."},
+  {id:"pm", label:"Project management", built:false, blurb:"A Gantt of r0–r4 and every story beneath it, each clickable to its own detail."},
+  {id:"agents", label:"AI agents", built:false, blurb:"Story ownership by role, with a skills list per owner once any are registered."},
+  {id:"kb", label:"Knowledge base", built:false, blurb:"Requirements, stories, decisions, and running notes, with a chat panel that cites its source tab."},
+  {id:"datamodel", label:"Data model", built:false, blurb:"The tables behind all of the above — proposed before anything is created."},
+];
+
+/* ---------------- mode state ---------------- */
+function getMode(){ return localStorage.getItem('mc-mode') || 'sample'; }
+function setMode(m){ localStorage.setItem('mc-mode', m); render(); }
+
+/* ---------------- helpers ---------------- */
+function daysBetween(a,b){ return Math.round((new Date(b) - new Date(a)) / 86400000); }
+function fmtDate(d){ return new Date(d+"T00:00:00").toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function today(){ const t=new Date(); return new Date(t.getFullYear(),t.getMonth(),t.getDate()); }
+function todayISO(){ const t=today(); return t.toISOString().slice(0,10); }
+
+function currentRelease(){
+  const t = todayISO();
+  let cur = DATA.releases.find(r => t >= r.start && t <= r.end);
+  if(cur) return cur;
+  // between releases: the next one that hasn't started yet, else the last one
+  const next = DATA.releases.find(r => t < r.start);
+  return next || DATA.releases[DATA.releases.length-1];
+}
+
+function sparkPath(values, w, h){
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const stepX = w / (values.length - 1);
+  return values.map((v,i)=>{
+    const x = i*stepX;
+    const y = h - ((v-min)/span)*h;
+    return (i===0?"M":"L")+x.toFixed(1)+","+y.toFixed(1);
+  }).join(" ");
+}
+
+/* ---------------- nav ---------------- */
+function renderNav(){
+  const nav = document.getElementById('sidenav');
+  const hash = location.hash.replace('#','') || 'overview';
+  nav.innerHTML = `<div class="group-label">Command Center</div>` + TABS.map(t=>`
+    <a href="#${t.id}" class="${hash===t.id?'active':''}">
+      <span>${t.label}</span>
+      ${t.built? "" : '<span class="soon">soon</span>'}
+    </a>`).join('');
+}
+
+/* ---------------- Overview ---------------- */
+function renderOverview(){
+  const mode = getMode();
+  const rel = currentRelease();
+  const doneCount = rel.stories.filter(s=>s.done).length;
+  const totalCount = rel.stories.length;
+  const daysLeft = daysBetween(todayISO(), rel.end);
+  const relState = todayISO() < rel.start ? "starts" : (todayISO() > rel.end ? "ended" : "due");
+
+  const connected = DATA.systems.filter(s=>s.status==='good').length;
+  const enforced = DATA.guardrails.filter(g=>g.enforced).length;
+  const scopedAgents = 0; // owners exist; no scoped AI agents exist yet — real fact, not toggled by mode
+
+  const reqCounts = DATA.requirements.reduce((acc,r)=>{ acc[r.cat]=(acc[r.cat]||0)+1; return acc; }, {});
+  const totalStories = DATA.releases.reduce((n,r)=>n+r.stories.length,0);
+
+  const outcome = DATA.outcomes["REQ-012"];
+  const demoDaysLeft = daysBetween(todayISO(), DATA.project.demoDay);
+  const buildDaysLeft = daysBetween(todayISO(), DATA.project.buildEnd);
+
+  document.getElementById('view').innerHTML = `
+    ${mode==='sample' ? `
+      <div class="sample-banner"><span class="dot"></span>
+        Sample data mode — the Outcomes preview below is illustrative and not measured. Releases, systems, and guardrails are always real.
+      </div>` : ``}
+
+    <div class="hero">
+      <h1>${DATA.project.name}</h1>
+      <p>${DATA.project.tagline}</p>
+    </div>
+
+    <div class="grid">
+
+      <div class="card span-6">
+        <div class="card-label">Current release</div>
+        <h3>${rel.id.toUpperCase()} · ${rel.name}</h3>
+        <div class="progress-line">
+          <span>${doneCount} of ${totalCount} stories complete</span>
+          <span class="mono">${fmtDate(rel.start)} → ${fmtDate(rel.end)}</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${totalCount? (doneCount/totalCount*100):0}%"></div></div>
+        <div class="sub">${relState==='due' ? `${Math.max(daysLeft,0)} day${daysLeft===1?'':'s'} left in this release` : relState==='starts' ? `Starts in ${Math.abs(daysLeft)} day${Math.abs(daysLeft)===1?'':'s'}` : `Release window closed`}</div>
+      </div>
+
+      <div class="card span-6">
+        <div class="card-label">What's live right now</div>
+        <div class="status-row"><span class="name"><span class="dot ${connected>0?'good':'unknown'}"></span>Systems connected</span><span class="mono">${connected} / ${DATA.systems.length}</span></div>
+        <div class="status-row"><span class="name"><span class="dot ${enforced>0?'good':'unknown'}"></span>Guardrails enforced in code</span><span class="mono">${enforced} / ${DATA.guardrails.length}</span></div>
+        <div class="status-row"><span class="name"><span class="dot unknown"></span>AI agents scoped</span><span class="mono">${scopedAgents} / ${DATA.owners.length} owners</span></div>
+        <div class="sub">Honest read for r0, day ${daysBetween(rel.start, todayISO())+1}: skeleton in progress, nothing wired up yet.</div>
+      </div>
+
+      <div class="card span-4">
+        <div class="card-label">Requirements</div>
+        <div class="big">${DATA.requirements.length}</div>
+        <div class="req-chip-row">
+          <span class="req-chip"><b>${reqCounts.FUNC||0}</b> func</span>
+          <span class="req-chip"><b>${reqCounts.SAFE||0}</b> safe</span>
+          <span class="req-chip"><b>${reqCounts.CONSTRAINT||0}</b> constraint</span>
+          <span class="req-chip"><b>${reqCounts.NFR||0}</b> nfr</span>
+        </div>
+        <div class="sub">All must-priority except REQ-017.</div>
+      </div>
+
+      <div class="card span-4">
+        <div class="card-label">Stories across r0–r4</div>
+        <div class="big">${totalStories}</div>
+        <div class="sub">5 releases · owned by 3 human roles and 2 system components</div>
+      </div>
+
+      <div class="card span-4">
+        <div class="card-label">Demo day</div>
+        <div class="big mono">${fmtDate(DATA.project.demoDay)}</div>
+        <div class="sub">${demoDaysLeft} days out · build ends ${fmtDate(DATA.project.buildEnd)} (${buildDaysLeft} days), then a week of demo prep.</div>
+      </div>
+
+      <div class="card span-6">
+        <div class="card-label">Outcomes preview — REQ-012 ${mode==='sample' ? '<span class="badge sample">SAMPLE</span>' : ''}</div>
+        <h3>${outcome.metric}</h3>
+        ${mode==='sample' ? renderSparkCard(outcome) : `
+          <div class="empty-state">Not measured yet — no notes have been generated.<br>Target: ${outcome.target}.</div>
+        `}
+      </div>
+
+      <div class="card span-6">
+        <div class="card-label">Guardrails — SAFE requirements</div>
+        ${DATA.guardrails.map(g=>`
+          <div class="guardrail-row">
+            <div class="rid mono">${g.req}</div>
+            <div class="txt">${g.text}<br><span class="badge unknown" style="margin-top:4px;">Not yet enforced</span></div>
+          </div>
+        `).join('')}
+      </div>
+
+    </div>
+
+    <footer class="foot">
+      <span>Data source: single in-page DATA object (src/command-center/index.html). No backend connected yet.</span>
+      <span>Mode: <strong class="mono">${mode}</strong> · Rendered ${new Date().toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})}</span>
+    </footer>
+  `;
+}
+
+function renderSparkCard(outcome){
+  const w=260,h=56;
+  const path = sparkPath(outcome.sample, w, h);
+  const last = outcome.sample[outcome.sample.length-1];
+  const lastX = w, lastY = h - ((last-Math.min(...outcome.sample))/((Math.max(...outcome.sample)-Math.min(...outcome.sample))||1))*h;
+  return `
+    <div class="sparkline-wrap">
+      <svg width="${w}" height="${h+8}" viewBox="0 0 ${w} ${h+8}" role="img" aria-label="Illustrative sample trend toward target, not measured data">
+        <path d="${path}" fill="none" stroke="var(--sample)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${lastX}" cy="${lastY}" r="4" fill="var(--sample)"/>
+      </svg>
+      <div class="progress-line">
+        <span>Illustrative trend toward target — not real measurements</span>
+        <span class="mono">target ${outcome.target}</span>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------- stub tabs ---------------- */
+function renderStub(tab){
+  document.getElementById('view').innerHTML = `
+    <div class="stub">
+      <h2 class="serif">${tab.label}</h2>
+      <p class="lede">${tab.blurb}</p>
+      <span class="not-built">Not built yet — coming right after Overview is signed off</span>
+    </div>
+  `;
+}
+
+/* ---------------- router ---------------- */
+function render(){
+  const hash = location.hash.replace('#','') || 'overview';
+  const tab = TABS.find(t=>t.id===hash) || TABS[0];
+  renderNav();
+  document.getElementById('release-pill').textContent = currentRelease().id.toUpperCase() + ' · ' + currentRelease().name;
+  const mode = getMode();
+  document.getElementById('btn-sample').className = mode==='sample' ? 'active' : '';
+  document.getElementById('btn-real').className = mode==='real' ? 'active' : '';
+  if(tab.built){ renderOverview(); } else { renderStub(tab); }
+}
+window.addEventListener('hashchange', render);
+render();
+</script>
