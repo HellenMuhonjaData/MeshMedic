@@ -33,6 +33,16 @@
       "sample": [6.4, 6.0, 5.3, 4.6, 3.9, 3.1, 2.4, 1.9]
     }
   },
+  "story000": {
+    "title": "Build your Command Center",
+    "doneMeans": [
+      {"id": 1, "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "done": true, "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page — fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."},
+      {"id": 2, "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "done": true, "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only — the one place sample data legitimately applies)."},
+      {"id": 3, "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "done": true, "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) — when served normally, fetched data overwrites it."},
+      {"id": 4, "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "done": true, "note": "Top bar shows a data-age pill on every tab, sourced from manifest.generatedAt and manifest.staleAfterDays."},
+      {"id": 5, "text": "Trust — no tab shows a number, a connection, or a result the project has not actually produced.", "done": true, "note": "Systems and guardrail status are always real (never toggled by sample mode). Outcomes shows \"Not measured yet\" in real mode. Story status is honestly not-started everywhere."}
+    ]
+  },
   "decisions": [
     {"date":"2026-08-17","text":"No brand colors were supplied for MeshMedic, so the Command Center uses a neutral palette defined in one CSS token block for a later one-line swap.","tab":"overview"},
     {"date":"2026-08-17","text":"Systems and guardrail statuses are treated as always-real, never toggled by sample mode — connection state and code-enforcement state are facts, not something safe to fabricate.","tab":"guardrails"},

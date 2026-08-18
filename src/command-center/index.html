@@ -560,8 +560,7 @@ function renderOverview(){
       <p>${PLAN.project.tagline}</p>
     </div>
     <div class="grid">
-      <div class="card span-6">
-        <div class="card-label">Current release</div>
+      ${card(`<div class="card-label">Current release</div>
         <h3>${rel.id.toUpperCase()} · ${rel.name}</h3>
         <div class="progress-line">
           <span>${doneCount} of ${totalCount} stories complete</span>
@@ -569,36 +568,30 @@ function renderOverview(){
         </div>
         <div class="bar-track"><div class="bar-fill" style="width:${totalCount? (doneCount/totalCount*100):0}%"></div></div>
         <div class="sub">${relState==='due' ? `${Math.max(daysLeft,0)} day${daysLeft===1?'':'s'} left in this release` : relState==='starts' ? `Starts in ${Math.abs(daysLeft)} day${Math.abs(daysLeft)===1?'':'s'}` : `Release window closed`}</div>
-      </div>
-      <div class="card span-6">
-        <div class="card-label">What's live right now</div>
-        <div class="status-row"><span class="name"><span class="dot ${connected>0?'good':'unknown'}"></span>Systems connected</span><span class="mono">${connected} / ${totalSystems}</span></div>
-        <div class="status-row"><span class="name"><span class="dot ${enforced>0?'good':'unknown'}"></span>Guardrails enforced in code</span><span class="mono">${enforced} / ${totalGuardrails}</span></div>
-        <div class="status-row"><span class="name"><span class="dot ${scopedAgents>0?'good':'unknown'}"></span>Owners with scoped skills</span><span class="mono">${scopedAgents} / ${PLAN.owners.length}</span></div>
-        <div class="sub">Honest read for r0, day ${daysBetween(rel.start, todayISO())+1}: skeleton in progress, nothing wired up yet.</div>
-      </div>
+        <div class="card-foot">Full timeline →</div>`, {span:12, href:'#pm'})}
+      ${card(`<div class="card-label">Systems</div><div class="big">${connected} / ${totalSystems}</div><div class="sub">connected right now</div><div class="card-foot">See systems →</div>`, {span:4, href:'#systems'})}
+      ${card(`<div class="card-label">Guardrails</div><div class="big">${enforced} / ${totalGuardrails}</div><div class="sub">enforced in code</div><div class="card-foot">See guardrails →</div>`, {span:4, href:'#guardrails'})}
+      ${card(`<div class="card-label">AI agents</div><div class="big">${scopedAgents} / ${PLAN.owners.length}</div><div class="sub">owners with scoped skills</div><div class="card-foot">See owners →</div>`, {span:4, href:'#agents'})}
       ${card(`<div class="card-label">Requirements</div><div class="big">${PLAN.requirements.length}</div>
         <div class="req-chip-row">
           <span class="req-chip"><b>${reqCounts.FUNC||0}</b> func</span>
           <span class="req-chip"><b>${reqCounts.SAFE||0}</b> safe</span>
           <span class="req-chip"><b>${reqCounts.CONSTRAINT||0}</b> constraint</span>
           <span class="req-chip"><b>${reqCounts.NFR||0}</b> nfr</span>
-        </div><div class="sub">All must-priority except REQ-017.</div>`)}
-      ${card(`<div class="card-label">Stories across r0–r4</div><div class="big">${totalStories}</div><div class="sub">5 releases · owned by 3 human roles and 2 system components</div>`)}
-      ${card(`<div class="card-label">Demo day</div><div class="big mono">${fmtDate(PLAN.project.demoDay)}</div><div class="sub">${demoDaysLeft} days out · build ends ${fmtDate(PLAN.project.buildEnd)} (${buildDaysLeft} days), then a week of demo prep.</div>`)}
-      <div class="card span-6">
-        <div class="card-label">Outcomes preview — ${outcomeDef.req} ${mode==='sample' ? '<span class="badge sample">SAMPLE</span>' : ''}</div>
+        </div><div class="sub">All must-priority except REQ-017.</div><div class="card-foot">Full list →</div>`, {span:4, href:'#kb'})}
+      ${card(`<div class="card-label">Stories across r0–r4</div><div class="big">${totalStories}</div><div class="sub">5 releases · owned by 3 human roles and 2 system components</div><div class="card-foot">See stories →</div>`, {span:4, href:'#pm'})}
+      ${card(`<div class="card-label">Demo day</div><div class="big mono">${fmtDate(PLAN.project.demoDay)}</div><div class="sub">${demoDaysLeft} days out · build ends ${fmtDate(PLAN.project.buildEnd)} (${buildDaysLeft} days), then a week of demo prep.</div><div class="card-foot">See roadmap →</div>`, {span:4, href:'#pm'})}
+      ${card(`<div class="card-label">Outcomes preview — ${outcomeDef.req} ${mode==='sample' ? '<span class="badge sample">SAMPLE</span>' : ''}</div>
         <h3>${outcomeDef.metric}</h3>
         ${mode==='sample' ? renderSparkCard(outcomeDef, outcomeData) : `<div class="empty-state">Not measured yet — no notes have been generated.<br>Target: ${outcomeDef.target}.</div>`}
-      </div>
-      <div class="card span-6">
-        <div class="card-label">Guardrails — SAFE requirements</div>
+        <div class="card-foot">How it's calculated →</div>`, {span:6, href:`#outcomes/${outcomeDef.req}`})}
+      ${card(`<div class="card-label">Guardrails — SAFE requirements</div>
         ${PLAN.guardrails.map(g=>`
           <div class="guardrail-row">
             <div class="rid mono">${g.req}</div>
             <div class="txt">${g.text}<br><span class="badge unknown" style="margin-top:4px;">Not yet enforced</span></div>
           </div>`).join('')}
-      </div>
+        <div class="card-foot">Full guardrails →</div>`, {span:6, href:'#guardrails'})}
     </div>
     <footer class="foot">
       <span>Data source: ${USING_FALLBACK ? 'fallback snapshot embedded in this page (fetch of .colaberry/*.json unavailable in this preview)' : '.colaberry/plan.json + progress.json, fetched at runtime'}.</span>
@@ -656,7 +649,7 @@ function renderOutcomes(id){
         const value = mode==='sample' ? `${data.sample[data.sample.length-1]} min (sample)` : (data.real==null ? 'Not measured yet' : `${data.real} min`);
         return card(`<div class="card-label">${o.req}</div><h3>${o.metric}</h3><div class="big" style="font-size:22px;">${value}</div><div class="sub">Target ${o.target}</div><div class="card-foot">View calculation →</div>`, {span:6, href:`#outcomes/${o.req}`});
       }).join('')}
-      ${card(`<div class="card-label">Coming later</div><h3>Only one outcome is committed so far</h3><div class="sub">REQ-012 is the sole outcome metric in the current plan. As more requirements get outcome targets, they'll appear here as their own cards.</div>`, {span:6})}
+      ${card(`<div class="card-label">Coming later</div><h3>Only one outcome is committed so far</h3><div class="sub">REQ-012 is the sole outcome metric in the current plan. As more requirements get outcome targets, they'll appear here as their own cards.</div><div class="card-foot">See the full roadmap →</div>`, {span:6, href:'#pm'})}
     </div>`;
 }
 
