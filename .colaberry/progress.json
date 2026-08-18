@@ -1,0 +1,42 @@
+{
+  "updatedAt": "2026-08-18T01:30:00Z",
+  "storyStatus": {
+    "STORY-001": "not-started", "STORY-002": "not-started", "STORY-003": "not-started",
+    "STORY-004": "not-started", "STORY-005": "not-started",
+    "STORY-006": "not-started",
+    "STORY-007": "not-started", "STORY-008": "not-started",
+    "STORY-009": "not-started", "STORY-010": "not-started", "STORY-011": "not-started", "STORY-012": "not-started"
+  },
+  "systemStatus": {
+    "EHR": {"status":"unknown","lastChecked":null},
+    "Epic": {"status":"unknown","lastChecked":null},
+    "Oracle Health": {"status":"unknown","lastChecked":null},
+    "Cerner": {"status":"unknown","lastChecked":null},
+    "EHRs": {"status":"unknown","lastChecked":null}
+  },
+  "guardrailEnforced": {
+    "REQ-006": {"enforced": false, "note": "No audit log exists yet — nothing has been built."},
+    "REQ-011": {"enforced": false, "note": "No PHI handling code exists yet."},
+    "REQ-014": {"enforced": false, "note": "No AI action pathway exists yet — nothing to gate."},
+    "REQ-018": {"enforced": false, "note": "No compliance mapping implemented yet."}
+  },
+  "agentsScoped": {
+    "Clinician": [],
+    "Compliance Officer": [],
+    "System Integrator": [],
+    "Clinical Documentation System": [],
+    "Clinical Decision Support System": []
+  },
+  "outcomes": {
+    "REQ-012": {
+      "real": null,
+      "sample": [6.4, 6.0, 5.3, 4.6, 3.9, 3.1, 2.4, 1.9]
+    }
+  },
+  "decisions": [
+    {"date":"2026-08-17","text":"No brand colors were supplied for MeshMedic, so the Command Center uses a neutral palette defined in one CSS token block for a later one-line swap.","tab":"overview"},
+    {"date":"2026-08-17","text":"Systems and guardrail statuses are treated as always-real, never toggled by sample mode — connection state and code-enforcement state are facts, not something safe to fabricate.","tab":"guardrails"},
+    {"date":"2026-08-18","text":"REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly — flagged as an open gap rather than force-mapped to an unrelated story.","tab":"guardrails"}
+  ],
+  "notes": []
+}

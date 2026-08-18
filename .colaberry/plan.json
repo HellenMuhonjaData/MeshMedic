@@ -1,0 +1,80 @@
+{
+  "project": {
+    "name": "MeshMedic",
+    "tagline": "AI-powered clinical documentation and workflow copilot for healthcare professionals.",
+    "demoDay": "2026-10-08",
+    "buildEnd": "2026-10-01"
+  },
+  "requirements": [
+    {"id":"REQ-001","cat":"FUNC","priority":"must","text":"Process patient encounter conversations to generate structured clinical notes."},
+    {"id":"REQ-002","cat":"FUNC","priority":"must","text":"Suggest appropriate ICD-10 and CPT codes based on encounter data."},
+    {"id":"REQ-003","cat":"FUNC","priority":"must","text":"Identify potential gaps in care from encounter data."},
+    {"id":"REQ-004","cat":"FUNC","priority":"must","text":"Prepare follow-up documentation such as referral letters for clinician review."},
+    {"id":"REQ-005","cat":"FUNC","priority":"must","text":"Allow clinicians to review, edit, approve, or reject AI-generated notes, codes, and recommendations."},
+    {"id":"REQ-006","cat":"SAFE","priority":"must","text":"Maintain an auditable history of AI recommendations and clinician actions."},
+    {"id":"REQ-007","cat":"FUNC","priority":"must","text":"Provide clear explanations for its recommendations, including source citations."},
+    {"id":"REQ-008","cat":"FUNC","priority":"must","text":"Flag low-confidence sections with a visual warning and explanation."},
+    {"id":"REQ-009","cat":"FUNC","priority":"must","text":"Retrieve and return authorized patient information through EHR systems using FHIR APIs."},
+    {"id":"REQ-010","cat":"CONSTRAINT","priority":"must","text":"Remain EHR-agnostic while integrating with Epic and Oracle Health/Cerner."},
+    {"id":"REQ-011","cat":"SAFE","priority":"must","text":"Protect PHI and ensure privacy and security compliance."},
+    {"id":"REQ-012","cat":"NFR","priority":"must","text":"Reduce documentation time to under 2 minutes of review per note."},
+    {"id":"REQ-013","cat":"FUNC","priority":"must","text":"Distinguish between encounter-supported and AI-generated information."},
+    {"id":"REQ-014","cat":"SAFE","priority":"must","text":"Not execute clinical decisions or actions without clinician approval."},
+    {"id":"REQ-015","cat":"CONSTRAINT","priority":"must","text":"Use ambient audio recordings and text transcripts as input for note generation."},
+    {"id":"REQ-016","cat":"CONSTRAINT","priority":"must","text":"Access patient demographics and problem list/history from EHRs."},
+    {"id":"REQ-017","cat":"FUNC","priority":"should","text":"Provide a visual interface for clinicians to interact with AI-generated content."},
+    {"id":"REQ-018","cat":"SAFE","priority":"must","text":"Support healthcare compliance standards relevant to clinical documentation."}
+  ],
+  "releases": [
+    {"id":"r0","name":"Initial Skeleton","start":"2026-08-11","end":"2026-08-18",
+      "stories":[
+        {"id":"STORY-001","title":"Generate and approve AI clinical notes","due":"2026-08-11","owner":"Clinician","reqs":["REQ-001","REQ-005","REQ-014"]},
+        {"id":"STORY-002","title":"Maintain auditable history of actions","due":"2026-08-15","owner":"Compliance Officer","reqs":["REQ-006"]},
+        {"id":"STORY-003","title":"Flag low-confidence AI recommendations","due":"2026-08-18","owner":"Clinician","reqs":["REQ-008"]}
+      ]},
+    {"id":"r1","name":"Advanced Coding and Care Gap","start":"2026-08-24","end":"2026-08-29",
+      "stories":[
+        {"id":"STORY-004","title":"Suggest ICD-10 and CPT codes","due":"2026-08-24","owner":"Clinician","reqs":["REQ-002"]},
+        {"id":"STORY-005","title":"Identify and flag care gaps","due":"2026-08-29","owner":"Clinician","reqs":["REQ-003"]}
+      ]},
+    {"id":"r2","name":"EHR Integration","start":"2026-09-09","end":"2026-09-09",
+      "stories":[
+        {"id":"STORY-006","title":"Integrate with EHR systems using FHIR APIs","due":"2026-09-09","owner":"System Integrator","reqs":["REQ-009","REQ-010","REQ-016"]}
+      ]},
+    {"id":"r3","name":"Recommendation Transparency","start":"2026-09-15","end":"2026-09-20",
+      "stories":[
+        {"id":"STORY-007","title":"Provide source citations for AI recommendations","due":"2026-09-15","owner":"Clinician","reqs":["REQ-007"]},
+        {"id":"STORY-008","title":"Indicate AI recommendation confidence","due":"2026-09-20","owner":"Clinician","reqs":["REQ-008"]}
+      ]},
+    {"id":"r4","name":"Efficiency and Compliance","start":"2026-09-23","end":"2026-10-01",
+      "stories":[
+        {"id":"STORY-009","title":"Optimize documentation time","due":"2026-09-23","owner":"Clinician","reqs":["REQ-012"]},
+        {"id":"STORY-010","title":"Ensure compliance with healthcare standards","due":"2026-09-26","owner":"Compliance Officer","reqs":["REQ-018"]},
+        {"id":"STORY-011","title":"Prepare follow-up documentation for clinician review","due":"2026-09-28","owner":"Clinical Documentation System","reqs":["REQ-004"]},
+        {"id":"STORY-012","title":"Distinguish between encounter-supported and AI-generated information","due":"2026-10-01","owner":"Clinical Decision Support System","reqs":["REQ-013"]}
+      ]}
+  ],
+  "systems": [
+    {"name":"EHR","purpose":"Generic EHR connection point (REQ-009, REQ-016)."},
+    {"name":"Epic","purpose":"Named EHR integration target (REQ-010)."},
+    {"name":"Oracle Health","purpose":"Named EHR integration target (REQ-010)."},
+    {"name":"Cerner","purpose":"Named EHR integration target (REQ-010), now part of Oracle Health."},
+    {"name":"EHRs","purpose":"Plural entry as given in the brief — EHR-agnostic integration surface (REQ-010)."}
+  ],
+  "guardrails": [
+    {"req":"REQ-006","text":"Maintain an auditable history of AI recommendations and clinician actions.","story":"STORY-002"},
+    {"req":"REQ-011","text":"Protect PHI and ensure privacy and security compliance.","story":null},
+    {"req":"REQ-014","text":"Not execute clinical decisions or actions without clinician approval.","story":"STORY-001"},
+    {"req":"REQ-018","text":"Support healthcare compliance standards relevant to clinical documentation.","story":"STORY-010"}
+  ],
+  "owners": [
+    {"name":"Clinician","type":"role","stories":["STORY-001","STORY-003","STORY-004","STORY-005","STORY-007","STORY-008","STORY-009"]},
+    {"name":"Compliance Officer","type":"role","stories":["STORY-002","STORY-010"]},
+    {"name":"System Integrator","type":"role","stories":["STORY-006"]},
+    {"name":"Clinical Documentation System","type":"system","stories":["STORY-011"]},
+    {"name":"Clinical Decision Support System","type":"system","stories":["STORY-012"]}
+  ],
+  "outcomes": [
+    {"req":"REQ-012","metric":"Documentation review time per note","target":"< 2 min","story":"STORY-009","calculation":"Time from note draft creation to clinician approval, taken from the audit trail (REQ-006), averaged per day across approved notes."}
+  ]
+}
