@@ -1,4 +1,17 @@
 {
+  "schema_version": 1,
+  "stories": [
+    {
+      "id": "STORY-000",
+      "criteria": [
+        { "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "passed": true },
+        { "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "passed": true },
+        { "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "passed": true },
+        { "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "passed": true },
+        { "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.", "passed": true }
+      ]
+    }
+  ],
   "updatedAt": "2026-08-18T01:30:00Z",
   "storyStatus": {
     "STORY-001": "not-started", "STORY-002": "not-started", "STORY-003": "not-started",
