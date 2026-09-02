@@ -64,6 +64,33 @@ class EditedNote(BaseModel):
     edited_at: str
 
 
+class CodeSuggestion(BaseModel):
+    code: Annotated[str, Field(min_length=1, max_length=20)]
+    code_system: Literal["icd-10", "cpt"]
+    description: Annotated[str, Field(min_length=1, max_length=300)]
+
+
+class SuggestedCodes(BaseModel):
+    suggestion_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["draft"]
+    codes: list[CodeSuggestion]
+    suggested_at: str
+
+
+class ReviewedCodes(BaseModel):
+    suggestion_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["approved", "rejected"]
+    codes: list[CodeSuggestion]
+    feedback: str | None
+    reviewed_at: str
+
+
 def _append_audit_entry(entry: dict) -> None:
     """Local stand-in for a real audit trail (REQ-006). Not HIPAA-grade --
     a production audit log needs its own access controls and durability
@@ -502,6 +529,222 @@ def reject_encounter_note(
         ehr_system=generated["ehr_system"],
         status="rejected",
         note_text=current_text,
+        feedback=feedback,
+        reviewed_at=reviewed_at,
+    )
+
+
+def _find_suggestion(suggestion_id: str) -> dict | None:
+    """Reconstruct a code suggestion's current state by replaying the audit
+    log, same pattern as _find_note -- the audit trail is the single source
+    of truth (REQ-006)."""
+    if not AUDIT_LOG_PATH.exists():
+        return None
+    suggested = None
+    decision = None
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("suggestion_id") != suggestion_id:
+                continue
+            if entry["action"] == "suggest_codes":
+                suggested = entry
+            elif entry["action"] in ("approve_codes", "reject_codes"):
+                decision = entry
+    if suggested is None:
+        return None
+    return {"suggested": suggested, "decision": decision}
+
+
+@mcp.tool()
+def suggest_codes(
+    note_id: Annotated[str, Field(min_length=1)],
+    codes: Annotated[list[CodeSuggestion], Field(min_length=1)],
+) -> SuggestedCodes:
+    """
+    Record AI-suggested ICD-10/CPT codes for a previously generated encounter
+    note so a clinician can review and approve or reject them (REQ-014) and
+    trace the suggestion in the audit trail (REQ-006). Call this only for a
+    note_id returned by generate_encounter_note.
+
+    You (the calling model) compose `codes` yourself, grounded in the note and
+    its transcript, each as {code, code_system: "icd-10"|"cpt", description}.
+    This tool does not derive or validate codes -- there is no external
+    ICD-10/CPT database wired into this system, so correctness is checked by
+    clinician review, not computed here.
+
+    The returned suggestion set is always status="draft": it is not billing
+    documentation until a clinician reviews and approves it.
+    """
+    note_record = _find_note(note_id)
+    if note_record is None:
+        raise ResourceNotFoundError(
+            f"No generated note found for note_id={note_id!r}; confirm the note "
+            "exists (generate_encounter_note) before suggesting codes for it."
+        )
+
+    generated = note_record["generated"]
+    suggestion_id = str(uuid.uuid4())
+    suggested_at = datetime.now(timezone.utc).isoformat()
+
+    _append_audit_entry(
+        {
+            "timestamp": suggested_at,
+            "action": "suggest_codes",
+            "suggestion_id": suggestion_id,
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "codes": [c.model_dump() for c in codes],
+            "status": "draft",
+        }
+    )
+
+    return SuggestedCodes(
+        suggestion_id=suggestion_id,
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        status="draft",
+        codes=codes,
+        suggested_at=suggested_at,
+    )
+
+
+@mcp.tool()
+def approve_codes(
+    suggestion_id: Annotated[str, Field(min_length=1)],
+    edited_codes: list[CodeSuggestion] | None = None,
+) -> ReviewedCodes:
+    """
+    Record a clinician's approval of a previously suggested code set
+    (REQ-014), so the audit trail shows both the AI's suggestions and the
+    clinician's decision (REQ-006). Call this only for a suggestion_id
+    returned by suggest_codes.
+
+    Pass `edited_codes` if the clinician changed the list before approving
+    (e.g. dropped an incorrect code); otherwise the originally suggested
+    codes are used as-is.
+
+    Approving an already-approved suggestion set with the same edited_codes
+    is a no-op that returns the existing decision -- it does not write a
+    second audit entry. Approving a set that was already rejected (or vice
+    versa) raises ToolError: a suggestion set gets exactly one clinician
+    decision.
+    """
+    record = _find_suggestion(suggestion_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
+
+    suggested = record["suggested"]
+    decision = record["decision"]
+    final_codes = edited_codes if edited_codes is not None else [CodeSuggestion(**c) for c in suggested["codes"]]
+    final_codes_dump = [c.model_dump() for c in final_codes]
+
+    if decision is not None:
+        if decision["action"] == "approve_codes" and decision["codes"] == final_codes_dump:
+            return ReviewedCodes(
+                suggestion_id=suggestion_id,
+                note_id=decision["note_id"],
+                patient_id=decision["patient_id"],
+                ehr_system=decision["ehr_system"],
+                status="approved",
+                codes=[CodeSuggestion(**c) for c in decision["codes"]],
+                feedback=None,
+                reviewed_at=decision["timestamp"],
+            )
+        raise ToolError(
+            f"suggestion_id={suggestion_id!r} already has a recorded decision "
+            f"({decision['action']}); a suggestion set gets exactly one clinician decision."
+        )
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": reviewed_at,
+            "action": "approve_codes",
+            "suggestion_id": suggestion_id,
+            "note_id": suggested["note_id"],
+            "ehr_system": suggested["ehr_system"],
+            "patient_id": suggested["patient_id"],
+            "codes": final_codes_dump,
+            "status": "approved",
+        }
+    )
+    return ReviewedCodes(
+        suggestion_id=suggestion_id,
+        note_id=suggested["note_id"],
+        patient_id=suggested["patient_id"],
+        ehr_system=suggested["ehr_system"],
+        status="approved",
+        codes=final_codes,
+        feedback=None,
+        reviewed_at=reviewed_at,
+    )
+
+
+@mcp.tool()
+def reject_codes(
+    suggestion_id: Annotated[str, Field(min_length=1)],
+    feedback: Annotated[str, Field(min_length=1, max_length=2000)],
+) -> ReviewedCodes:
+    """
+    Record a clinician's rejection of a previously suggested code set,
+    together with feedback for improvement (REQ-014), so the audit trail
+    shows both the AI's suggestions and the clinician's decision (REQ-006).
+    Call this only for a suggestion_id returned by suggest_codes.
+
+    Rejecting an already-rejected suggestion set with the same feedback is a
+    no-op that returns the existing decision -- it does not write a second
+    audit entry. Rejecting a set that was already approved (or vice versa)
+    raises ToolError: a suggestion set gets exactly one clinician decision.
+    """
+    record = _find_suggestion(suggestion_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
+
+    suggested = record["suggested"]
+    decision = record["decision"]
+
+    if decision is not None:
+        if decision["action"] == "reject_codes" and decision.get("feedback") == feedback:
+            return ReviewedCodes(
+                suggestion_id=suggestion_id,
+                note_id=decision["note_id"],
+                patient_id=decision["patient_id"],
+                ehr_system=decision["ehr_system"],
+                status="rejected",
+                codes=[CodeSuggestion(**c) for c in decision["codes"]],
+                feedback=decision.get("feedback"),
+                reviewed_at=decision["timestamp"],
+            )
+        raise ToolError(
+            f"suggestion_id={suggestion_id!r} already has a recorded decision "
+            f"({decision['action']}); a suggestion set gets exactly one clinician decision."
+        )
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    original_codes = [CodeSuggestion(**c) for c in suggested["codes"]]
+    _append_audit_entry(
+        {
+            "timestamp": reviewed_at,
+            "action": "reject_codes",
+            "suggestion_id": suggestion_id,
+            "note_id": suggested["note_id"],
+            "ehr_system": suggested["ehr_system"],
+            "patient_id": suggested["patient_id"],
+            "codes": suggested["codes"],
+            "feedback": feedback,
+            "status": "rejected",
+        }
+    )
+    return ReviewedCodes(
+        suggestion_id=suggestion_id,
+        note_id=suggested["note_id"],
+        patient_id=suggested["patient_id"],
+        ehr_system=suggested["ehr_system"],
+        status="rejected",
+        codes=original_codes,
         feedback=feedback,
         reviewed_at=reviewed_at,
     )

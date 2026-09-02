@@ -199,21 +199,33 @@
       "criteria": [
         {
           "text": "Given encounter data, when the AI suggests codes, then the clinician can review and approve them.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a code suggestion, when the clinician rejects it, then they can provide feedback for improvement.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The audit trail must log code suggestions and clinician decisions.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_suggest_codes_happy_path",
+        "test_suggest_codes_unknown_note_id_raises_and_does_not_audit",
+        "test_approve_codes_happy_path",
+        "test_approve_codes_with_edit_records_final_codes",
+        "test_reject_codes_happy_path_requires_and_logs_feedback",
+        "test_approve_codes_unknown_suggestion_id_raises_and_does_not_audit",
+        "test_approve_then_reject_same_suggestion_raises_tool_error",
+        "test_approve_codes_is_idempotent_for_identical_replay"
+      ],
+      "notes": "Added suggest_codes, approve_codes, reject_codes MCP tools, mirroring STORY-001's note workflow exactly (audit-log-as-source-of-truth via a new _find_suggestion helper, one decision per suggestion set, idempotent replay, ToolError on conflicting redecision). Code suggestions are tied to an existing note_id from generate_encounter_note, reusing its confirmed patient/encounter context rather than re-verifying identity. No external ICD-10/CPT validation database exists in this system -- correctness (the \"Incorrect code suggestions\" failure path) is mitigated by clinician review/reject-with-feedback, same honest limitation as STORY-001's note generation, not by algorithmic checking.",
+      "updated_at": "2026-09-02T20:38:53.017Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

@@ -290,3 +290,120 @@ def test_flagged_note_manual_correction_is_saved_and_logged():
     assert entries[0]["action"] == "generate_note" and entries[0]["flagged"] is True
     assert entries[1]["action"] == "edit_note"
     assert entries[1]["note_text"] == corrected.note_text
+
+
+def _suggest_codes(note_id):
+    return server.suggest_codes(
+        note_id=note_id,
+        codes=[
+            server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified"),
+            server.CodeSuggestion(
+                code="99213", code_system="cpt", description="Established patient office visit, low complexity"
+            ),
+        ],
+    )
+
+
+def test_suggest_codes_happy_path():
+    note = _generate_note()
+
+    suggestion = _suggest_codes(note.note_id)
+
+    assert suggestion.status == "draft"
+    assert suggestion.note_id == note.note_id
+    assert len(suggestion.codes) == 2
+    assert suggestion.codes[0].code == "R51.9"
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[1]["action"] == "suggest_codes"
+    assert entries[1]["suggestion_id"] == suggestion.suggestion_id
+    assert entries[1]["note_id"] == note.note_id
+    assert entries[1]["status"] == "draft"
+
+
+def test_suggest_codes_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        _suggest_codes("does-not-exist")
+
+    assert _read_audit_entries() == []
+
+
+def test_approve_codes_happy_path():
+    note = _generate_note()
+    suggestion = _suggest_codes(note.note_id)
+
+    reviewed = server.approve_codes(suggestion_id=suggestion.suggestion_id)
+
+    assert reviewed.status == "approved"
+    assert reviewed.codes == suggestion.codes
+    assert reviewed.feedback is None
+
+    entries = _read_audit_entries()
+    assert len(entries) == 3
+    assert entries[2]["action"] == "approve_codes"
+    assert entries[2]["suggestion_id"] == suggestion.suggestion_id
+    assert entries[2]["status"] == "approved"
+
+
+def test_approve_codes_with_edit_records_final_codes():
+    note = _generate_note()
+    suggestion = _suggest_codes(note.note_id)
+
+    reviewed = server.approve_codes(
+        suggestion_id=suggestion.suggestion_id,
+        edited_codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+    )
+
+    assert len(reviewed.codes) == 1
+    entries = _read_audit_entries()
+    assert len(entries[2]["codes"]) == 1
+    # The AI's original two-code suggestion is still visible in its own entry.
+    assert len(entries[1]["codes"]) == 2
+
+
+def test_reject_codes_happy_path_requires_and_logs_feedback():
+    note = _generate_note()
+    suggestion = _suggest_codes(note.note_id)
+
+    reviewed = server.reject_codes(
+        suggestion_id=suggestion.suggestion_id,
+        feedback="99213 is too low a complexity level for this visit; should be 99214.",
+    )
+
+    assert reviewed.status == "rejected"
+    assert reviewed.feedback == "99213 is too low a complexity level for this visit; should be 99214."
+
+    entries = _read_audit_entries()
+    assert entries[2]["action"] == "reject_codes"
+    assert entries[2]["feedback"] == "99213 is too low a complexity level for this visit; should be 99214."
+
+
+def test_approve_codes_unknown_suggestion_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.approve_codes(suggestion_id="does-not-exist")
+
+    assert _read_audit_entries() == []
+
+
+def test_approve_then_reject_same_suggestion_raises_tool_error():
+    note = _generate_note()
+    suggestion = _suggest_codes(note.note_id)
+    server.approve_codes(suggestion_id=suggestion.suggestion_id)
+
+    with pytest.raises(ToolError):
+        server.reject_codes(suggestion_id=suggestion.suggestion_id, feedback="Actually, reject this.")
+
+    # No fourth audit entry was written for the rejected attempt.
+    assert len(_read_audit_entries()) == 3
+
+
+def test_approve_codes_is_idempotent_for_identical_replay():
+    note = _generate_note()
+    suggestion = _suggest_codes(note.note_id)
+    first = server.approve_codes(suggestion_id=suggestion.suggestion_id)
+    second = server.approve_codes(suggestion_id=suggestion.suggestion_id)
+
+    assert first == second
+    # Replaying the identical approval did not write a second audit entry.
+    assert len(_read_audit_entries()) == 3
