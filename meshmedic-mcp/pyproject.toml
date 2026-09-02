@@ -1,0 +1,19 @@
+[project]
+name = "meshmedic-mcp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=2.1.1",
+]
+
+[project.scripts]
+meshmedic-mcp = "meshmedic_mcp:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]

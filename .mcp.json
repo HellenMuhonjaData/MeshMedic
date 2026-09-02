@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "meshmedic": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "C:\\Users\\helle\\OneDrive\\Documents\\AI-Project\\meshmedic-mcp",
+        "python",
+        "server.py"
+      ]
+    }
+  }
+}

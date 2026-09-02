@@ -1,37 +1,570 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "project": "MeshMedic",
+  "totals": {
+    "stories_total": 13,
+    "stories_verified": 1,
+    "stories_submitted": 0,
+    "stories_in_progress": 0,
+    "stories_not_started": 12,
+    "criteria_total": 41,
+    "criteria_passed": 5,
+    "points_awarded": 62
+  },
   "stories": [
     {
       "id": "STORY-000",
+      "release": null,
+      "acceptance_total": 5,
       "criteria": [
-        { "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "passed": true },
-        { "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "passed": true },
-        { "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "passed": true },
-        { "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "passed": true },
-        { "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.", "passed": true }
-      ]
+        {
+          "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.",
+          "passed": true
+        },
+        {
+          "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.",
+          "passed": true
+        },
+        {
+          "text": "Given the Command Center, when any tab renders, then .colaberry/plan.json and .colaberry/progress.json are both committed in this repo and every tab reads its content from them at runtime rather than from hard-coded values.",
+          "passed": true
+        },
+        {
+          "text": "Given the Command Center, when any tab is shown, then .colaberry/manifest.json is committed in this repo and every tab shows how old that data is and warns when the age exceeds a week.",
+          "passed": true
+        },
+        {
+          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
+          "passed": true
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "verified",
+        "criteria_passed": 5,
+        "criteria_total": 5,
+        "verified_at": "2026-08-18T17:55:31.988Z",
+        "commit_sha": "370c7d3946c92ee39ac00eb0802e8decb454992d",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/370c7d3946c92ee39ac00eb0802e8decb454992d",
+        "commit_at": "2026-08-18T02:09:47Z",
+        "points_awarded": 62,
+        "outstanding": []
+      }
+    },
+    {
+      "id": "STORY-001",
+      "release": "r0",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a patient encounter, when the AI generates a note, then the clinician can review and approve it.",
+          "passed": false
+        },
+        {
+          "text": "Given a clinician rejects a note, when they provide feedback, then the system logs the action in the audit trail.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The audit trail must show the AI's note and the clinician's approval or rejection.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a patient encounter, when the AI generates a note, then the clinician can review and approve it.",
+          "Given a clinician rejects a note, when they provide feedback, then the system logs the action in the audit trail.",
+          "Trust: The audit trail must show the AI's note and the clinician's approval or rejection."
+        ]
+      }
+    },
+    {
+      "id": "STORY-002",
+      "release": "r0",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given an AI recommendation, when a clinician approves it, then the action is logged in the audit trail.",
+          "passed": false
+        },
+        {
+          "text": "Given a clinician edits a recommendation, when they save changes, then the edit is logged in the audit trail.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The audit trail must reflect all AI recommendations and clinician actions.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given an AI recommendation, when a clinician approves it, then the action is logged in the audit trail.",
+          "Given a clinician edits a recommendation, when they save changes, then the edit is logged in the audit trail.",
+          "Trust: The audit trail must reflect all AI recommendations and clinician actions."
+        ]
+      }
+    },
+    {
+      "id": "STORY-003",
+      "release": "r0",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a low-confidence recommendation, when the AI flags it, then the clinician sees a warning icon.",
+          "passed": false
+        },
+        {
+          "text": "Given a flagged recommendation, when the clinician reviews it, then they can manually input corrections.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log flagged recommendations and clinician corrections.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a low-confidence recommendation, when the AI flags it, then the clinician sees a warning icon.",
+          "Given a flagged recommendation, when the clinician reviews it, then they can manually input corrections.",
+          "Trust: The system must log flagged recommendations and clinician corrections."
+        ]
+      }
+    },
+    {
+      "id": "STORY-004",
+      "release": "r1",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given encounter data, when the AI suggests codes, then the clinician can review and approve them.",
+          "passed": false
+        },
+        {
+          "text": "Given a code suggestion, when the clinician rejects it, then they can provide feedback for improvement.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The audit trail must log code suggestions and clinician decisions.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given encounter data, when the AI suggests codes, then the clinician can review and approve them.",
+          "Given a code suggestion, when the clinician rejects it, then they can provide feedback for improvement.",
+          "Trust: The audit trail must log code suggestions and clinician decisions."
+        ]
+      }
+    },
+    {
+      "id": "STORY-005",
+      "release": "r1",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given encounter data, when the AI identifies a care gap, then it flags it for clinician review.",
+          "passed": false
+        },
+        {
+          "text": "Given a flagged care gap, when the clinician addresses it, then the action is logged in the audit trail.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log identified care gaps and clinician actions.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given encounter data, when the AI identifies a care gap, then it flags it for clinician review.",
+          "Given a flagged care gap, when the clinician addresses it, then the action is logged in the audit trail.",
+          "Trust: The system must log identified care gaps and clinician actions."
+        ]
+      }
+    },
+    {
+      "id": "STORY-006",
+      "release": "r2",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a FHIR API endpoint, when the system requests patient data, then it retrieves and displays the data.",
+          "passed": false
+        },
+        {
+          "text": "Given an EHR system, when the system integrates with it, then it remains EHR-agnostic.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log all data retrieval actions from EHRs.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a FHIR API endpoint, when the system requests patient data, then it retrieves and displays the data.",
+          "Given an EHR system, when the system integrates with it, then it remains EHR-agnostic.",
+          "Trust: The system must log all data retrieval actions from EHRs."
+        ]
+      }
+    },
+    {
+      "id": "STORY-007",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given an AI recommendation, when the clinician requests a source citation, then the system highlights the relevant transcript section.",
+          "passed": false
+        },
+        {
+          "text": "Given a citation request, when the system cannot provide it, then it explains the reason.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log all citation requests and responses.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given an AI recommendation, when the clinician requests a source citation, then the system highlights the relevant transcript section.",
+          "Given a citation request, when the system cannot provide it, then it explains the reason.",
+          "Trust: The system must log all citation requests and responses."
+        ]
+      }
+    },
+    {
+      "id": "STORY-008",
+      "release": "r3",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given an AI recommendation, when the system displays it, then it shows a confidence score.",
+          "passed": false
+        },
+        {
+          "text": "Given a low-confidence recommendation, when the clinician reviews it, then they see an explanation for the low confidence.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log all confidence scores and clinician interactions.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given an AI recommendation, when the system displays it, then it shows a confidence score.",
+          "Given a low-confidence recommendation, when the clinician reviews it, then they see an explanation for the low confidence.",
+          "Trust: The system must log all confidence scores and clinician interactions."
+        ]
+      }
+    },
+    {
+      "id": "STORY-009",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a patient encounter, when the AI generates a note, then the review time is under 2 minutes.",
+          "passed": false
+        },
+        {
+          "text": "Given a note review, when it exceeds 2 minutes, then the system provides suggestions to speed up the process.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log documentation time for each encounter.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a patient encounter, when the AI generates a note, then the review time is under 2 minutes.",
+          "Given a note review, when it exceeds 2 minutes, then the system provides suggestions to speed up the process.",
+          "Trust: The system must log documentation time for each encounter."
+        ]
+      }
+    },
+    {
+      "id": "STORY-010",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a compliance audit, when the system is reviewed, then it meets all relevant standards.",
+          "passed": false
+        },
+        {
+          "text": "Given a security breach attempt, when the system detects it, then it prevents unauthorized access.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system must log all compliance checks and security incidents.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a compliance audit, when the system is reviewed, then it meets all relevant standards.",
+          "Given a security breach attempt, when the system detects it, then it prevents unauthorized access.",
+          "Trust: The system must log all compliance checks and security incidents."
+        ]
+      }
+    },
+    {
+      "id": "STORY-011",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.",
+          "passed": false
+        },
+        {
+          "text": "Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs the creation and approval of each referral letter for audit purposes.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.",
+          "Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.",
+          "Trust: The system logs the creation and approval of each referral letter for audit purposes."
+        ]
+      }
+    },
+    {
+      "id": "STORY-012",
+      "release": "r4",
+      "acceptance_total": 3,
+      "criteria": [
+        {
+          "text": "Given a patient encounter, when information is presented, then the system clearly labels encounter-supported data.",
+          "passed": false
+        },
+        {
+          "text": "Given AI-generated information is presented, when a clinician reviews it, then the system clearly labels it as AI-generated.",
+          "passed": false
+        },
+        {
+          "text": "Trust: The system logs the source of each piece of information presented to the clinician.",
+          "passed": false
+        }
+      ],
+      "files_touched": [],
+      "tests_added": [],
+      "notes": null,
+      "updated_at": null,
+      "verification": {
+        "state": "not_started",
+        "criteria_passed": 0,
+        "criteria_total": 3,
+        "verified_at": null,
+        "commit_sha": null,
+        "commit_url": null,
+        "commit_at": null,
+        "points_awarded": null,
+        "outstanding": [
+          "Given a patient encounter, when information is presented, then the system clearly labels encounter-supported data.",
+          "Given AI-generated information is presented, when a clinician reviews it, then the system clearly labels it as AI-generated.",
+          "Trust: The system logs the source of each piece of information presented to the clinician."
+        ]
+      }
     }
   ],
   "updatedAt": "2026-08-18T01:30:00Z",
   "storyStatus": {
-    "STORY-001": "not-started", "STORY-002": "not-started", "STORY-003": "not-started",
-    "STORY-004": "not-started", "STORY-005": "not-started",
+    "STORY-001": "not-started",
+    "STORY-002": "not-started",
+    "STORY-003": "not-started",
+    "STORY-004": "not-started",
+    "STORY-005": "not-started",
     "STORY-006": "not-started",
-    "STORY-007": "not-started", "STORY-008": "not-started",
-    "STORY-009": "not-started", "STORY-010": "not-started", "STORY-011": "not-started", "STORY-012": "not-started"
+    "STORY-007": "not-started",
+    "STORY-008": "not-started",
+    "STORY-009": "not-started",
+    "STORY-010": "not-started",
+    "STORY-011": "not-started",
+    "STORY-012": "not-started"
   },
   "systemStatus": {
-    "EHR": {"status":"unknown","lastChecked":null},
-    "Epic": {"status":"unknown","lastChecked":null},
-    "Oracle Health": {"status":"unknown","lastChecked":null},
-    "Cerner": {"status":"unknown","lastChecked":null},
-    "EHRs": {"status":"unknown","lastChecked":null}
+    "EHR": {
+      "status": "unknown",
+      "lastChecked": null
+    },
+    "Epic": {
+      "status": "unknown",
+      "lastChecked": null
+    },
+    "Oracle Health": {
+      "status": "unknown",
+      "lastChecked": null
+    },
+    "Cerner": {
+      "status": "unknown",
+      "lastChecked": null
+    },
+    "EHRs": {
+      "status": "unknown",
+      "lastChecked": null
+    }
   },
   "guardrailEnforced": {
-    "REQ-006": {"enforced": false, "note": "No audit log exists yet — nothing has been built."},
-    "REQ-011": {"enforced": false, "note": "No PHI handling code exists yet."},
-    "REQ-014": {"enforced": false, "note": "No AI action pathway exists yet — nothing to gate."},
-    "REQ-018": {"enforced": false, "note": "No compliance mapping implemented yet."}
+    "REQ-006": {
+      "enforced": false,
+      "note": "No audit log exists yet — nothing has been built."
+    },
+    "REQ-011": {
+      "enforced": false,
+      "note": "No PHI handling code exists yet."
+    },
+    "REQ-014": {
+      "enforced": false,
+      "note": "No AI action pathway exists yet — nothing to gate."
+    },
+    "REQ-018": {
+      "enforced": false,
+      "note": "No compliance mapping implemented yet."
+    }
   },
   "agentsScoped": {
     "Clinician": [],
@@ -43,23 +576,69 @@
   "outcomes": {
     "REQ-012": {
       "real": null,
-      "sample": [6.4, 6.0, 5.3, 4.6, 3.9, 3.1, 2.4, 1.9]
+      "sample": [
+        6.4,
+        6,
+        5.3,
+        4.6,
+        3.9,
+        3.1,
+        2.4,
+        1.9
+      ]
     }
   },
   "story000": {
     "title": "Build your Command Center",
     "doneMeans": [
-      {"id": 1, "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.", "done": true, "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page — fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."},
-      {"id": 2, "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.", "done": true, "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only — the one place sample data legitimately applies)."},
-      {"id": 3, "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.", "done": true, "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) — when served normally, fetched data overwrites it."},
-      {"id": 4, "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.", "done": true, "note": "Top bar shows a data-age pill on every tab, sourced from manifest.generatedAt and manifest.staleAfterDays."},
-      {"id": 5, "text": "Trust — no tab shows a number, a connection, or a result the project has not actually produced.", "done": true, "note": "Systems and guardrail status are always real (never toggled by sample mode). Outcomes shows \"Not measured yet\" in real mode. Story status is honestly not-started everywhere."}
+      {
+        "id": 1,
+        "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.",
+        "done": true,
+        "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page — fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."
+      },
+      {
+        "id": 2,
+        "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.",
+        "done": true,
+        "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only — the one place sample data legitimately applies)."
+      },
+      {
+        "id": 3,
+        "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.",
+        "done": true,
+        "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) — when served normally, fetched data overwrites it."
+      },
+      {
+        "id": 4,
+        "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.",
+        "done": true,
+        "note": "Top bar shows a data-age pill on every tab, sourced from manifest.generatedAt and manifest.staleAfterDays."
+      },
+      {
+        "id": 5,
+        "text": "Trust — no tab shows a number, a connection, or a result the project has not actually produced.",
+        "done": true,
+        "note": "Systems and guardrail status are always real (never toggled by sample mode). Outcomes shows \"Not measured yet\" in real mode. Story status is honestly not-started everywhere."
+      }
     ]
   },
   "decisions": [
-    {"date":"2026-08-17","text":"No brand colors were supplied for MeshMedic, so the Command Center uses a neutral palette defined in one CSS token block for a later one-line swap.","tab":"overview"},
-    {"date":"2026-08-17","text":"Systems and guardrail statuses are treated as always-real, never toggled by sample mode — connection state and code-enforcement state are facts, not something safe to fabricate.","tab":"guardrails"},
-    {"date":"2026-08-18","text":"REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly — flagged as an open gap rather than force-mapped to an unrelated story.","tab":"guardrails"}
+    {
+      "date": "2026-08-17",
+      "text": "No brand colors were supplied for MeshMedic, so the Command Center uses a neutral palette defined in one CSS token block for a later one-line swap.",
+      "tab": "overview"
+    },
+    {
+      "date": "2026-08-17",
+      "text": "Systems and guardrail statuses are treated as always-real, never toggled by sample mode — connection state and code-enforcement state are facts, not something safe to fabricate.",
+      "tab": "guardrails"
+    },
+    {
+      "date": "2026-08-18",
+      "text": "REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly — flagged as an open gap rather than force-mapped to an unrelated story.",
+      "tab": "guardrails"
+    }
   ],
   "notes": []
 }
