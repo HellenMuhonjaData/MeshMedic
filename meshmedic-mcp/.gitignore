@@ -3,3 +3,4 @@ audit_log.jsonl
 inspector.out.log
 inspector.err.log
 inspector.pid
+epic_fhir_private_key.pem

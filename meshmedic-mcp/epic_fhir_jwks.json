@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS384",
+      "kid": "meshmedic-fhir-cdce91f85d6f",
+      "n": "6lFcQXdmSJ6iuWtQlZuStrkpXQHtMsRw1wTWWom1_jVQTeVnk5jr0RixFW3gDTnZZyquW5QfxO-mGUjpMn5Y4dqCKX0Uy2QOwPkOAMb8jg-N_2gr6D4jygX9m67f5HgNsLdrV9X2A5zl7gpuc3wArrZErjyiYwNgmg0aJ8VmzRlljE1qvYNKJ28lNIp7fnYqO7eLGfB0f3B2YUwK08y9LU86yfY2VJDWBja5YfOPyPzQHMpZPIgXKnVcAn8YLNIY7YYupXQcPVgygAd0q8LQYxvJ_oqEpOx_YugacLi6JuxUTIzS1uUm8Zzhr65V7GwhnXF6ri0vtGYZDBJesKRE0Q",
+      "e": "AQAB"
+    }
+  ]
+}
