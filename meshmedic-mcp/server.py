@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import BaseModel, Field
 
 from sample_patients import SAMPLE_PATIENTS
@@ -37,6 +37,16 @@ class GeneratedNote(BaseModel):
     status: Literal["draft"]
     note_text: str
     generated_at: str
+
+
+class ReviewedNote(BaseModel):
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["approved", "rejected"]
+    note_text: str
+    feedback: str | None
+    reviewed_at: str
 
 
 def _append_audit_entry(entry: dict) -> None:
@@ -221,6 +231,159 @@ def generate_encounter_note(
         status="draft",
         note_text=note_text,
         generated_at=generated_at,
+    )
+
+
+def _find_note(note_id: str) -> dict | None:
+    """Reconstruct a note's current state by replaying the audit log --
+    the audit trail is the single source of truth for note status (REQ-006),
+    so no separate in-memory store can drift from what it says happened."""
+    if not AUDIT_LOG_PATH.exists():
+        return None
+    generated = None
+    decision = None
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("note_id") != note_id:
+                continue
+            if entry["action"] == "generate_note":
+                generated = entry
+            elif entry["action"] in ("approve_note", "reject_note"):
+                decision = entry
+    if generated is None:
+        return None
+    return {"generated": generated, "decision": decision}
+
+
+@mcp.tool()
+def approve_encounter_note(
+    note_id: Annotated[str, Field(min_length=1)],
+    edited_note_text: Annotated[str | None, Field(max_length=5000)] = None,
+) -> ReviewedNote:
+    """
+    Record a clinician's approval of a previously generated draft note
+    (REQ-005 / REQ-014), so the audit trail shows both the AI's note and
+    the clinician's decision (REQ-006). Call this only for a note_id
+    returned by generate_encounter_note.
+
+    Pass `edited_note_text` if the clinician changed the draft before
+    approving -- the original AI draft stays in its own audit entry, and
+    this one records the clinician's final text (REQ-005's "review, edit,
+    approve").
+
+    Approving an already-approved note with the same edited_note_text is a
+    no-op that returns the existing decision -- it does not write a second
+    audit entry. Approving a note that was already rejected (or vice
+    versa) raises ToolError: a note gets exactly one clinician decision.
+    """
+    record = _find_note(note_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
+
+    generated = record["generated"]
+    decision = record["decision"]
+    final_text = edited_note_text if edited_note_text is not None else generated["note_text"]
+
+    if decision is not None:
+        if decision["action"] == "approve_note" and decision["note_text"] == final_text:
+            return ReviewedNote(
+                note_id=note_id,
+                patient_id=decision["patient_id"],
+                ehr_system=decision["ehr_system"],
+                status="approved",
+                note_text=decision["note_text"],
+                feedback=None,
+                reviewed_at=decision["timestamp"],
+            )
+        raise ToolError(
+            f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
+            "a note gets exactly one clinician decision."
+        )
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": reviewed_at,
+            "action": "approve_note",
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "note_text": final_text,
+            "status": "approved",
+        }
+    )
+    return ReviewedNote(
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        status="approved",
+        note_text=final_text,
+        feedback=None,
+        reviewed_at=reviewed_at,
+    )
+
+
+@mcp.tool()
+def reject_encounter_note(
+    note_id: Annotated[str, Field(min_length=1)],
+    feedback: Annotated[str, Field(min_length=1, max_length=2000)],
+) -> ReviewedNote:
+    """
+    Record a clinician's rejection of a previously generated draft note,
+    together with their feedback (REQ-005 / REQ-014), so the audit trail
+    shows both the AI's note and the clinician's decision (REQ-006). Call
+    this only for a note_id returned by generate_encounter_note.
+
+    Rejecting an already-rejected note with the same feedback is a no-op
+    that returns the existing decision -- it does not write a second audit
+    entry. Rejecting a note that was already approved (or vice versa)
+    raises ToolError: a note gets exactly one clinician decision.
+    """
+    record = _find_note(note_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
+
+    generated = record["generated"]
+    decision = record["decision"]
+
+    if decision is not None:
+        if decision["action"] == "reject_note" and decision.get("feedback") == feedback:
+            return ReviewedNote(
+                note_id=note_id,
+                patient_id=decision["patient_id"],
+                ehr_system=decision["ehr_system"],
+                status="rejected",
+                note_text=decision["note_text"],
+                feedback=decision.get("feedback"),
+                reviewed_at=decision["timestamp"],
+            )
+        raise ToolError(
+            f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
+            "a note gets exactly one clinician decision."
+        )
+
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": reviewed_at,
+            "action": "reject_note",
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "note_text": generated["note_text"],
+            "feedback": feedback,
+            "status": "rejected",
+        }
+    )
+    return ReviewedNote(
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        status="rejected",
+        note_text=generated["note_text"],
+        feedback=feedback,
+        reviewed_at=reviewed_at,
     )
 
 

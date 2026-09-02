@@ -61,21 +61,31 @@
       "criteria": [
         {
           "text": "Given a patient encounter, when the AI generates a note, then the clinician can review and approve it.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a clinician rejects a note, when they provide feedback, then the system logs the action in the audit trail.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The audit trail must show the AI's note and the clinician's approval or rejection.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_approve_encounter_note_happy_path",
+        "test_approve_encounter_note_with_edit_records_final_text",
+        "test_reject_encounter_note_happy_path_requires_and_logs_feedback",
+        "test_approve_encounter_note_unknown_note_id_raises_and_does_not_audit",
+        "test_approve_then_reject_same_note_raises_tool_error",
+        "test_approve_encounter_note_is_idempotent_for_identical_replay"
+      ],
+      "notes": "Added approve_encounter_note and reject_encounter_note MCP tools. Audit trail (audit_log.jsonl) is the single source of truth for note status (generate_note -> approve_note|reject_note keyed by note_id), so approval/rejection is always traceable back to the AI draft it decided on.",
+      "updated_at": "2026-09-02T19:44:09.934Z",
       "verification": {
         "state": "not_started",
         "criteria_passed": 0,

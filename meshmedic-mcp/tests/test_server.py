@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from mcp.server.mcpserver.exceptions import ResourceNotFoundError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 import server
 
@@ -49,3 +49,89 @@ def test_generate_encounter_note_unknown_patient_raises_and_does_not_audit():
         )
 
     assert _read_audit_entries() == []
+
+
+def _generate_note():
+    return server.generate_encounter_note(
+        ehr_system="epic",
+        patient_id="epic-pt-10293847",
+        transcript="Patient reports mild headache for two days, no fever.",
+        note_text="Grace Whitfield presents with a two-day history of mild headache, afebrile.",
+    )
+
+
+def test_approve_encounter_note_happy_path():
+    note = _generate_note()
+
+    reviewed = server.approve_encounter_note(note_id=note.note_id)
+
+    assert reviewed.status == "approved"
+    assert reviewed.note_text == note.note_text
+    assert reviewed.feedback is None
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[0]["action"] == "generate_note"
+    assert entries[1]["action"] == "approve_note"
+    assert entries[1]["note_id"] == note.note_id
+    assert entries[1]["status"] == "approved"
+
+
+def test_approve_encounter_note_with_edit_records_final_text():
+    note = _generate_note()
+
+    reviewed = server.approve_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+
+    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    entries = _read_audit_entries()
+    assert entries[1]["note_text"] == reviewed.note_text
+    # The AI's original draft is still visible in its own entry.
+    assert entries[0]["note_text"] == note.note_text
+
+
+def test_reject_encounter_note_happy_path_requires_and_logs_feedback():
+    note = _generate_note()
+
+    reviewed = server.reject_encounter_note(
+        note_id=note.note_id,
+        feedback="Missed the patient's reported fever on day two.",
+    )
+
+    assert reviewed.status == "rejected"
+    assert reviewed.feedback == "Missed the patient's reported fever on day two."
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[1]["action"] == "reject_note"
+    assert entries[1]["feedback"] == "Missed the patient's reported fever on day two."
+
+
+def test_approve_encounter_note_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.approve_encounter_note(note_id="does-not-exist")
+
+    assert _read_audit_entries() == []
+
+
+def test_approve_then_reject_same_note_raises_tool_error():
+    note = _generate_note()
+    server.approve_encounter_note(note_id=note.note_id)
+
+    with pytest.raises(ToolError):
+        server.reject_encounter_note(note_id=note.note_id, feedback="Actually, reject this.")
+
+    # No third audit entry was written for the rejected attempt.
+    assert len(_read_audit_entries()) == 2
+
+
+def test_approve_encounter_note_is_idempotent_for_identical_replay():
+    note = _generate_note()
+    first = server.approve_encounter_note(note_id=note.note_id)
+    second = server.approve_encounter_note(note_id=note.note_id)
+
+    assert first == second
+    # Replaying the identical approval did not write a second audit entry.
+    assert len(_read_audit_entries()) == 2
