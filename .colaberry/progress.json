@@ -105,21 +105,31 @@
       "criteria": [
         {
           "text": "Given an AI recommendation, when a clinician approves it, then the action is logged in the audit trail.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a clinician edits a recommendation, when they save changes, then the edit is logged in the audit trail.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The audit trail must reflect all AI recommendations and clinician actions.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_edit_encounter_note_happy_path",
+        "test_approve_encounter_note_uses_latest_saved_edit_by_default",
+        "test_reject_encounter_note_uses_latest_saved_edit",
+        "test_edit_encounter_note_unknown_note_id_raises_and_does_not_audit",
+        "test_edit_encounter_note_after_decision_raises_tool_error",
+        "test_edit_encounter_note_identical_edit_is_idempotent"
+      ],
+      "notes": "Added edit_encounter_note, logging a distinct edit_note audit entry separate from approve/reject. approve_encounter_note and reject_encounter_note now default to the latest saved edit (via a shared _current_note_text helper) rather than always the AI original, so the audit trail accurately reflects what the clinician actually reviewed when they decided. Criterion 1 (approve logged) was already satisfied by STORY-001 approve_encounter_note; this story closes criteria 2 and 3.",
+      "updated_at": "2026-09-02T19:56:44.651Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

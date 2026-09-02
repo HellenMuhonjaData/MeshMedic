@@ -49,6 +49,15 @@ class ReviewedNote(BaseModel):
     reviewed_at: str
 
 
+class EditedNote(BaseModel):
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["draft"]
+    note_text: str
+    edited_at: str
+
+
 def _append_audit_entry(entry: dict) -> None:
     """Local stand-in for a real audit trail (REQ-006). Not HIPAA-grade --
     a production audit log needs its own access controls and durability
@@ -236,11 +245,13 @@ def generate_encounter_note(
 
 def _find_note(note_id: str) -> dict | None:
     """Reconstruct a note's current state by replaying the audit log --
-    the audit trail is the single source of truth for note status (REQ-006),
-    so no separate in-memory store can drift from what it says happened."""
+    the audit trail is the single source of truth for note text/status
+    (REQ-006), so no separate in-memory store can drift from what it says
+    happened."""
     if not AUDIT_LOG_PATH.exists():
         return None
     generated = None
+    latest_edit = None
     decision = None
     with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         for line in f:
@@ -249,11 +260,86 @@ def _find_note(note_id: str) -> dict | None:
                 continue
             if entry["action"] == "generate_note":
                 generated = entry
+            elif entry["action"] == "edit_note":
+                latest_edit = entry
             elif entry["action"] in ("approve_note", "reject_note"):
                 decision = entry
     if generated is None:
         return None
-    return {"generated": generated, "decision": decision}
+    return {"generated": generated, "latest_edit": latest_edit, "decision": decision}
+
+
+def _current_note_text(record: dict) -> str:
+    """The note's text as a clinician would see it right now: the latest
+    saved edit if one exists, otherwise the AI's original draft."""
+    if record["latest_edit"] is not None:
+        return record["latest_edit"]["note_text"]
+    return record["generated"]["note_text"]
+
+
+@mcp.tool()
+def edit_encounter_note(
+    note_id: Annotated[str, Field(min_length=1)],
+    edited_note_text: Annotated[str, Field(min_length=1, max_length=5000)],
+) -> EditedNote:
+    """
+    Save a clinician's edit to a draft note while they're still reviewing
+    it, before they decide to approve or reject (REQ-005's "review, edit,
+    approve/reject"), so the audit trail shows the edit as its own action
+    distinct from that later decision (REQ-006). Call this only for a
+    note_id returned by generate_encounter_note.
+
+    A later approve_encounter_note or reject_encounter_note call picks up
+    this saved edit as the note's current text automatically -- you do not
+    need to pass the edited text again at decision time.
+
+    Saving an edit identical to the note's current text is a no-op that
+    returns the existing state -- it does not write a duplicate audit
+    entry. Editing a note that already has a recorded decision raises
+    ToolError: once approved or rejected, a note's record is closed.
+    """
+    record = _find_note(note_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
+
+    if record["decision"] is not None:
+        raise ToolError(
+            f"note_id={note_id!r} already has a recorded decision "
+            f"({record['decision']['action']}); it can no longer be edited."
+        )
+
+    generated = record["generated"]
+    current_entry = record["latest_edit"] or generated
+    if current_entry["note_text"] == edited_note_text:
+        return EditedNote(
+            note_id=note_id,
+            patient_id=current_entry["patient_id"],
+            ehr_system=current_entry["ehr_system"],
+            status="draft",
+            note_text=edited_note_text,
+            edited_at=current_entry["timestamp"],
+        )
+
+    edited_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": edited_at,
+            "action": "edit_note",
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "note_text": edited_note_text,
+            "status": "draft",
+        }
+    )
+    return EditedNote(
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        status="draft",
+        note_text=edited_note_text,
+        edited_at=edited_at,
+    )
 
 
 @mcp.tool()
@@ -267,10 +353,10 @@ def approve_encounter_note(
     the clinician's decision (REQ-006). Call this only for a note_id
     returned by generate_encounter_note.
 
-    Pass `edited_note_text` if the clinician changed the draft before
-    approving -- the original AI draft stays in its own audit entry, and
-    this one records the clinician's final text (REQ-005's "review, edit,
-    approve").
+    Pass `edited_note_text` if the clinician is changing the draft at the
+    moment of approval; otherwise any edit already saved via
+    edit_encounter_note is used automatically, falling back to the AI's
+    original draft if there was none.
 
     Approving an already-approved note with the same edited_note_text is a
     no-op that returns the existing decision -- it does not write a second
@@ -283,7 +369,7 @@ def approve_encounter_note(
 
     generated = record["generated"]
     decision = record["decision"]
-    final_text = edited_note_text if edited_note_text is not None else generated["note_text"]
+    final_text = edited_note_text if edited_note_text is not None else _current_note_text(record)
 
     if decision is not None:
         if decision["action"] == "approve_note" and decision["note_text"] == final_text:
@@ -346,6 +432,7 @@ def reject_encounter_note(
 
     generated = record["generated"]
     decision = record["decision"]
+    current_text = _current_note_text(record)
 
     if decision is not None:
         if decision["action"] == "reject_note" and decision.get("feedback") == feedback:
@@ -371,7 +458,7 @@ def reject_encounter_note(
             "note_id": note_id,
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],
-            "note_text": generated["note_text"],
+            "note_text": current_text,
             "feedback": feedback,
             "status": "rejected",
         }
@@ -381,7 +468,7 @@ def reject_encounter_note(
         patient_id=generated["patient_id"],
         ehr_system=generated["ehr_system"],
         status="rejected",
-        note_text=generated["note_text"],
+        note_text=current_text,
         feedback=feedback,
         reviewed_at=reviewed_at,
     )

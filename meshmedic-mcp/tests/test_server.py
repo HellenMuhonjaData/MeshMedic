@@ -135,3 +135,80 @@ def test_approve_encounter_note_is_idempotent_for_identical_replay():
     assert first == second
     # Replaying the identical approval did not write a second audit entry.
     assert len(_read_audit_entries()) == 2
+
+
+def test_edit_encounter_note_happy_path():
+    note = _generate_note()
+
+    edited = server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+
+    assert edited.status == "draft"
+    assert edited.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[0]["action"] == "generate_note"
+    assert entries[1]["action"] == "edit_note"
+    assert entries[1]["note_id"] == note.note_id
+    assert entries[1]["status"] == "draft"
+
+
+def test_approve_encounter_note_uses_latest_saved_edit_by_default():
+    note = _generate_note()
+    server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+
+    reviewed = server.approve_encounter_note(note_id=note.note_id)
+
+    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+
+
+def test_reject_encounter_note_uses_latest_saved_edit():
+    note = _generate_note()
+    server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+
+    reviewed = server.reject_encounter_note(note_id=note.note_id, feedback="Still not detailed enough.")
+
+    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+
+
+def test_edit_encounter_note_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.edit_encounter_note(note_id="does-not-exist", edited_note_text="Some edit.")
+
+    assert _read_audit_entries() == []
+
+
+def test_edit_encounter_note_after_decision_raises_tool_error():
+    note = _generate_note()
+    server.approve_encounter_note(note_id=note.note_id)
+
+    with pytest.raises(ToolError):
+        server.edit_encounter_note(note_id=note.note_id, edited_note_text="Too late now.")
+
+    # No third audit entry was written for the rejected edit attempt.
+    assert len(_read_audit_entries()) == 2
+
+
+def test_edit_encounter_note_identical_edit_is_idempotent():
+    note = _generate_note()
+    first = server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+    second = server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
+    )
+
+    assert first == second
+    # Replaying the identical edit did not write a second audit entry.
+    assert len(_read_audit_entries()) == 2
