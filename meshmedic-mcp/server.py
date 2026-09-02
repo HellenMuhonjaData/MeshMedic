@@ -14,6 +14,9 @@ mcp = MCPServer("meshmedic")
 
 AUDIT_LOG_PATH = Path(__file__).parent / "audit_log.jsonl"
 
+# Below this, generate_encounter_note flags the note as low-confidence (REQ-008).
+CONFIDENCE_THRESHOLD = 0.7
+
 
 class PatientMatch(BaseModel):
     mrn: str
@@ -37,6 +40,9 @@ class GeneratedNote(BaseModel):
     status: Literal["draft"]
     note_text: str
     generated_at: str
+    confidence: float
+    flagged: bool
+    warning: str | None
 
 
 class ReviewedNote(BaseModel):
@@ -194,6 +200,8 @@ def generate_encounter_note(
     patient_id: Annotated[str, Field(min_length=1)],
     transcript: Annotated[str, Field(min_length=1, max_length=20000)],
     note_text: Annotated[str, Field(min_length=1, max_length=5000)],
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)],
+    confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
 ) -> GeneratedNote:
     """
     Record an AI-drafted encounter note for a confirmed patient so it can later
@@ -208,6 +216,16 @@ def generate_encounter_note(
     is kept alongside the note so the audit trail can later show what the note
     was grounded in.
 
+    You also assess your own `confidence` (0.0-1.0) in how well the transcript
+    and chart support this note. Below the low-confidence threshold, this tool
+    flags the note (REQ-008) and requires `confidence_reason` -- a flag with no
+    explanation is refused (ToolError), since REQ-008 requires a warning *and*
+    an explanation. There is no UI in this build, so the flag surfaces as a
+    `warning` string in the returned note -- relay it to the clinician
+    yourself. A flagged note still returns status="draft" like any other; the
+    clinician can manually correct it via edit_encounter_note (STORY-002)
+    before deciding to approve or reject.
+
     The returned note is always status="draft": it is not clinical
     documentation until a clinician reviews and approves it.
     """
@@ -217,8 +235,17 @@ def generate_encounter_note(
             "confirm identity with search_ehr_patient before generating a note."
         )
 
+    flagged = confidence < CONFIDENCE_THRESHOLD
+    if flagged and not confidence_reason:
+        raise ToolError(
+            f"confidence={confidence!r} is below the low-confidence threshold "
+            f"({CONFIDENCE_THRESHOLD}); confidence_reason is required so the "
+            "warning carries an explanation (REQ-008)."
+        )
+
     note_id = str(uuid.uuid4())
     generated_at = datetime.now(timezone.utc).isoformat()
+    warning = f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
 
     _append_audit_entry(
         {
@@ -229,6 +256,9 @@ def generate_encounter_note(
             "patient_id": patient_id,
             "transcript": transcript,
             "note_text": note_text,
+            "confidence": confidence,
+            "flagged": flagged,
+            "confidence_reason": confidence_reason,
             "status": "draft",
         }
     )
@@ -240,6 +270,9 @@ def generate_encounter_note(
         status="draft",
         note_text=note_text,
         generated_at=generated_at,
+        confidence=confidence,
+        flagged=flagged,
+        warning=warning,
     )
 
 
@@ -493,6 +526,7 @@ Known so far:
 1. Confirm identity. If the hint above doesn't already give you a confirmed patient_id, call search_ehr_patient with ehr_system={ehr_system} and whatever you have -- the MRN if you have it, otherwise last_name together with date_of_birth. Do not invent either value.
 2. Once you have exactly one confirmed patient_id, read the patient-chart resource for that patient_id before drafting anything, so the note is grounded in the real record rather than the conversation alone.
 3. Draft the note as: patient identity (name, MRN, DOB), a one-paragraph encounter summary, and status: draft -- never mark a note final. A clinician must review and approve it before it counts as anything (see REQ-005 / REQ-014).
+4. Assess your own confidence (0.0-1.0) in how well the transcript and chart actually support the note you drafted -- vague symptoms, a short or ambiguous transcript, or details the chart doesn't corroborate all lower it. Pass this as `confidence` to generate_encounter_note. If it's below 0.7, you must also pass `confidence_reason` explaining specifically what's uncertain (REQ-008) -- do not round confidence up just to skip writing a reason.
 
 Handle these three situations explicitly, the way you would explain an edge case to a colleague -- do not guess past any of them:
 - Information missing: search_ehr_patient has neither an MRN nor a last_name+date_of_birth to work with. Say plainly what's missing and stop; do not fabricate an identifier.

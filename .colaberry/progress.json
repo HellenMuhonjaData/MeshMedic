@@ -153,21 +153,29 @@
       "criteria": [
         {
           "text": "Given a low-confidence recommendation, when the AI flags it, then the clinician sees a warning icon.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a flagged recommendation, when the clinician reviews it, then they can manually input corrections.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log flagged recommendations and clinician corrections.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_generate_encounter_note_flags_low_confidence_with_reason",
+        "test_generate_encounter_note_at_threshold_is_not_flagged",
+        "test_generate_encounter_note_low_confidence_without_reason_raises_and_does_not_audit",
+        "test_flagged_note_manual_correction_is_saved_and_logged"
+      ],
+      "notes": "No UI exists in this build, so REQ-008's \"visual warning\" is implemented as a structured warning field on GeneratedNote (agreed interpretation with user) rather than a rendered icon -- whatever client calls the MCP tool is responsible for surfacing it. generate_encounter_note now requires a confidence score (0.0-1.0, threshold 0.7 per user); below threshold, confidence_reason is mandatory (ToolError if omitted) so the flag always carries an explanation per REQ-008's exact wording. Manual correction reuses edit_encounter_note from STORY-002 rather than rebuilding it, per the brief's explicit instruction.",
+      "updated_at": "2026-09-02T20:22:20.698Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

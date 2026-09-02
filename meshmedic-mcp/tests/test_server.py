@@ -24,12 +24,15 @@ def test_generate_encounter_note_happy_path():
         patient_id="epic-pt-10293847",
         transcript="Patient reports mild headache for two days, no fever.",
         note_text="Grace Whitfield presents with a two-day history of mild headache, afebrile.",
+        confidence=0.95,
     )
 
     assert note.status == "draft"
     assert note.patient_id == "epic-pt-10293847"
     assert note.note_text.startswith("Grace Whitfield")
     assert note.note_id
+    assert note.flagged is False
+    assert note.warning is None
 
     entries = _read_audit_entries()
     assert len(entries) == 1
@@ -37,6 +40,7 @@ def test_generate_encounter_note_happy_path():
     assert entries[0]["note_id"] == note.note_id
     assert entries[0]["status"] == "draft"
     assert entries[0]["patient_id"] == "epic-pt-10293847"
+    assert entries[0]["flagged"] is False
 
 
 def test_generate_encounter_note_unknown_patient_raises_and_does_not_audit():
@@ -46,6 +50,54 @@ def test_generate_encounter_note_unknown_patient_raises_and_does_not_audit():
             patient_id="epic-pt-does-not-exist",
             transcript="Patient reports mild headache.",
             note_text="Some draft text.",
+            confidence=0.95,
+        )
+
+    assert _read_audit_entries() == []
+
+
+def test_generate_encounter_note_flags_low_confidence_with_reason():
+    note = server.generate_encounter_note(
+        ehr_system="epic",
+        patient_id="epic-pt-10293847",
+        transcript="Patient mentioned some head discomfort, details unclear.",
+        note_text="Grace Whitfield reports head discomfort; onset and severity unclear from transcript.",
+        confidence=0.4,
+        confidence_reason="Transcript doesn't specify onset, duration, or severity.",
+    )
+
+    assert note.flagged is True
+    assert note.warning is not None
+    assert "0.40" in note.warning
+    assert "onset" in note.warning
+
+    entries = _read_audit_entries()
+    assert entries[0]["flagged"] is True
+    assert entries[0]["confidence"] == 0.4
+    assert entries[0]["confidence_reason"] == "Transcript doesn't specify onset, duration, or severity."
+
+
+def test_generate_encounter_note_at_threshold_is_not_flagged():
+    note = server.generate_encounter_note(
+        ehr_system="epic",
+        patient_id="epic-pt-10293847",
+        transcript="Patient reports mild headache for two days, no fever.",
+        note_text="Grace Whitfield presents with a two-day history of mild headache, afebrile.",
+        confidence=server.CONFIDENCE_THRESHOLD,
+    )
+
+    assert note.flagged is False
+    assert note.warning is None
+
+
+def test_generate_encounter_note_low_confidence_without_reason_raises_and_does_not_audit():
+    with pytest.raises(ToolError):
+        server.generate_encounter_note(
+            ehr_system="epic",
+            patient_id="epic-pt-10293847",
+            transcript="Patient mentioned some head discomfort, details unclear.",
+            note_text="Some draft text.",
+            confidence=0.4,
         )
 
     assert _read_audit_entries() == []
@@ -57,6 +109,7 @@ def _generate_note():
         patient_id="epic-pt-10293847",
         transcript="Patient reports mild headache for two days, no fever.",
         note_text="Grace Whitfield presents with a two-day history of mild headache, afebrile.",
+        confidence=0.95,
     )
 
 
@@ -212,3 +265,28 @@ def test_edit_encounter_note_identical_edit_is_idempotent():
     assert first == second
     # Replaying the identical edit did not write a second audit entry.
     assert len(_read_audit_entries()) == 2
+
+
+def test_flagged_note_manual_correction_is_saved_and_logged():
+    note = server.generate_encounter_note(
+        ehr_system="epic",
+        patient_id="epic-pt-10293847",
+        transcript="Patient mentioned some head discomfort, details unclear.",
+        note_text="Grace Whitfield reports head discomfort; onset and severity unclear from transcript.",
+        confidence=0.4,
+        confidence_reason="Transcript doesn't specify onset, duration, or severity.",
+    )
+    assert note.flagged is True
+
+    corrected = server.edit_encounter_note(
+        note_id=note.note_id,
+        edited_note_text="Grace Whitfield: two-day mild headache per follow-up call, afebrile.",
+    )
+
+    assert corrected.note_text == "Grace Whitfield: two-day mild headache per follow-up call, afebrile."
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[0]["action"] == "generate_note" and entries[0]["flagged"] is True
+    assert entries[1]["action"] == "edit_note"
+    assert entries[1]["note_text"] == corrected.note_text
