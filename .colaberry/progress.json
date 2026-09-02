@@ -249,21 +249,32 @@
       "criteria": [
         {
           "text": "Given encounter data, when the AI identifies a care gap, then it flags it for clinician review.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a flagged care gap, when the clinician addresses it, then the action is logged in the audit trail.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log identified care gaps and clinician actions.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_identify_care_gaps_happy_path_returns_independent_gaps",
+        "test_identify_care_gaps_unknown_note_id_raises_and_does_not_audit",
+        "test_address_care_gap_happy_path",
+        "test_care_gaps_from_same_call_are_addressed_independently",
+        "test_address_care_gap_unknown_gap_id_raises_and_does_not_audit",
+        "test_address_care_gap_conflicting_resolution_raises_tool_error",
+        "test_address_care_gap_is_idempotent_for_identical_replay"
+      ],
+      "notes": "Added identify_care_gaps and address_care_gap MCP tools. Deliberately NOT bundled like STORY-004's codes -- discussed the tradeoff with the user first (bundling would misrepresent partial progress, since a clinician might resolve one care gap today and leave another flagged for weeks from the same encounter). Each description passed to identify_care_gaps becomes its own CareGap with an independent gap_id and its own audit trail via a new _find_gap helper; address_care_gap records free-text resolution rather than an approve/reject binary, since addressing a care gap is not a yes/no on an AI recommendation. Same idempotent-replay / one-closing-action-per-gap / ToolError-on-conflict guarantees as the rest of the codebase. No external clinical-guideline database exists -- false positives in care gap identification are mitigated by clinician review, not computed.",
+      "updated_at": "2026-09-02T21:10:00.000Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

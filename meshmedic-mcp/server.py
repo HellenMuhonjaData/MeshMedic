@@ -91,6 +91,27 @@ class ReviewedCodes(BaseModel):
     reviewed_at: str
 
 
+class CareGap(BaseModel):
+    gap_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["flagged"]
+    description: str
+    identified_at: str
+
+
+class AddressedCareGap(BaseModel):
+    gap_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["addressed"]
+    description: str
+    resolution: str
+    addressed_at: str
+
+
 def _append_audit_entry(entry: dict) -> None:
     """Local stand-in for a real audit trail (REQ-006). Not HIPAA-grade --
     a production audit log needs its own access controls and durability
@@ -747,6 +768,161 @@ def reject_codes(
         codes=original_codes,
         feedback=feedback,
         reviewed_at=reviewed_at,
+    )
+
+
+def _find_gap(gap_id: str) -> dict | None:
+    """Reconstruct a single care gap's current state by replaying the audit
+    log, same pattern as _find_note/_find_suggestion -- the audit trail is
+    the single source of truth (REQ-006)."""
+    if not AUDIT_LOG_PATH.exists():
+        return None
+    identified = None
+    addressed = None
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("gap_id") != gap_id:
+                continue
+            if entry["action"] == "identify_care_gap":
+                identified = entry
+            elif entry["action"] == "address_care_gap":
+                addressed = entry
+    if identified is None:
+        return None
+    return {"identified": identified, "addressed": addressed}
+
+
+@mcp.tool()
+def identify_care_gaps(
+    note_id: Annotated[str, Field(min_length=1)],
+    descriptions: Annotated[list[Annotated[str, Field(min_length=1, max_length=300)]], Field(min_length=1)],
+) -> list[CareGap]:
+    """
+    Flag potential care gaps found in a previously generated encounter note
+    for clinician review (REQ-003), each traceable independently in the
+    audit trail (REQ-006). Call this only for a note_id returned by
+    generate_encounter_note.
+
+    You (the calling model) compose each gap's `description` yourself,
+    grounded in the note and its transcript/chart -- e.g. an overdue
+    screening or a missing vaccination implied by the encounter. This tool
+    does not derive or validate care gaps against any clinical-guideline
+    database; there is none wired into this system, so false positives are
+    caught by clinician review, not computed here.
+
+    Each description becomes its own CareGap with its own gap_id, addressed
+    independently via address_care_gap -- a clinician might resolve one gap
+    today and leave another flagged for weeks. Unlike suggest_codes, these
+    are deliberately not bundled into one shared decision: bundling would
+    misrepresent partial progress on the gaps from a single encounter.
+    """
+    note_record = _find_note(note_id)
+    if note_record is None:
+        raise ResourceNotFoundError(
+            f"No generated note found for note_id={note_id!r}; confirm the note "
+            "exists (generate_encounter_note) before identifying care gaps for it."
+        )
+
+    generated = note_record["generated"]
+    identified_at = datetime.now(timezone.utc).isoformat()
+    gaps: list[CareGap] = []
+    for description in descriptions:
+        gap_id = str(uuid.uuid4())
+        _append_audit_entry(
+            {
+                "timestamp": identified_at,
+                "action": "identify_care_gap",
+                "gap_id": gap_id,
+                "note_id": note_id,
+                "ehr_system": generated["ehr_system"],
+                "patient_id": generated["patient_id"],
+                "description": description,
+                "status": "flagged",
+            }
+        )
+        gaps.append(
+            CareGap(
+                gap_id=gap_id,
+                note_id=note_id,
+                patient_id=generated["patient_id"],
+                ehr_system=generated["ehr_system"],
+                status="flagged",
+                description=description,
+                identified_at=identified_at,
+            )
+        )
+    return gaps
+
+
+@mcp.tool()
+def address_care_gap(
+    gap_id: Annotated[str, Field(min_length=1)],
+    resolution: Annotated[str, Field(min_length=1, max_length=1000)],
+) -> AddressedCareGap:
+    """
+    Record what a clinician actually did about a flagged care gap (ordered
+    the missing screening, documented why it doesn't apply, deferred to a
+    follow-up, etc.) so the action is traceable in the audit trail (REQ-006).
+    Call this only for a gap_id returned by identify_care_gaps.
+
+    Unlike approve_codes/reject_codes, there is no accept/decline choice
+    here -- "addressing" a care gap is whatever the clinician actually did,
+    described in `resolution`. Each gap is closed independently of any
+    others from the same identify_care_gaps call.
+
+    Addressing an already-addressed gap with the identical resolution is a
+    no-op that returns the existing record -- it does not write a second
+    audit entry. Addressing it again with a different resolution raises
+    ToolError: a gap gets exactly one closing action, same as a note gets
+    exactly one clinician decision.
+    """
+    record = _find_gap(gap_id)
+    if record is None:
+        raise ResourceNotFoundError(f"No care gap found for gap_id={gap_id!r}.")
+
+    identified = record["identified"]
+    addressed = record["addressed"]
+
+    if addressed is not None:
+        if addressed["resolution"] == resolution:
+            return AddressedCareGap(
+                gap_id=gap_id,
+                note_id=addressed["note_id"],
+                patient_id=addressed["patient_id"],
+                ehr_system=addressed["ehr_system"],
+                status="addressed",
+                description=identified["description"],
+                resolution=addressed["resolution"],
+                addressed_at=addressed["timestamp"],
+            )
+        raise ToolError(
+            f"gap_id={gap_id!r} already has a recorded resolution; "
+            "a care gap gets exactly one closing action."
+        )
+
+    addressed_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": addressed_at,
+            "action": "address_care_gap",
+            "gap_id": gap_id,
+            "note_id": identified["note_id"],
+            "ehr_system": identified["ehr_system"],
+            "patient_id": identified["patient_id"],
+            "resolution": resolution,
+            "status": "addressed",
+        }
+    )
+    return AddressedCareGap(
+        gap_id=gap_id,
+        note_id=identified["note_id"],
+        patient_id=identified["patient_id"],
+        ehr_system=identified["ehr_system"],
+        status="addressed",
+        description=identified["description"],
+        resolution=resolution,
+        addressed_at=addressed_at,
     )
 
 

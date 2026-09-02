@@ -407,3 +407,104 @@ def test_approve_codes_is_idempotent_for_identical_replay():
     assert first == second
     # Replaying the identical approval did not write a second audit entry.
     assert len(_read_audit_entries()) == 3
+
+
+def test_identify_care_gaps_happy_path_returns_independent_gaps():
+    note = _generate_note()
+
+    gaps = server.identify_care_gaps(
+        note_id=note.note_id,
+        descriptions=[
+            "Patient overdue for mammogram - last screening 3+ years ago",
+            "No documented flu vaccine for current season",
+        ],
+    )
+
+    assert len(gaps) == 2
+    assert gaps[0].status == "flagged"
+    assert gaps[0].gap_id != gaps[1].gap_id
+    assert gaps[0].description.startswith("Patient overdue")
+    assert gaps[1].description.startswith("No documented flu")
+
+    entries = _read_audit_entries()
+    assert len(entries) == 3
+    assert entries[1]["action"] == "identify_care_gap"
+    assert entries[2]["action"] == "identify_care_gap"
+    assert entries[1]["gap_id"] == gaps[0].gap_id
+    assert entries[2]["gap_id"] == gaps[1].gap_id
+
+
+def test_identify_care_gaps_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.identify_care_gaps(note_id="does-not-exist", descriptions=["Some gap."])
+
+    assert _read_audit_entries() == []
+
+
+def test_address_care_gap_happy_path():
+    note = _generate_note()
+    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+
+    addressed = server.address_care_gap(
+        gap_id=gaps[0].gap_id,
+        resolution="Ordered mammogram referral, scheduled for next week.",
+    )
+
+    assert addressed.status == "addressed"
+    assert addressed.resolution == "Ordered mammogram referral, scheduled for next week."
+    assert addressed.description == "Overdue for mammogram."
+
+    entries = _read_audit_entries()
+    assert len(entries) == 3  # generate_note + identify_care_gap + address_care_gap
+    assert entries[2]["action"] == "address_care_gap"
+    assert entries[2]["gap_id"] == gaps[0].gap_id
+    assert entries[2]["resolution"] == "Ordered mammogram referral, scheduled for next week."
+
+
+def test_care_gaps_from_same_call_are_addressed_independently():
+    note = _generate_note()
+    gaps = server.identify_care_gaps(
+        note_id=note.note_id,
+        descriptions=["Overdue for mammogram.", "Missing flu vaccine."],
+    )
+
+    server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+
+    # The second gap from the same call is untouched -- still just flagged, not addressed.
+    still_open = server._find_gap(gaps[1].gap_id)
+    assert still_open["addressed"] is None
+
+    entries = _read_audit_entries()
+    assert len(entries) == 4  # generate_note + 2 identify + 1 address
+    assert entries[3]["gap_id"] == gaps[0].gap_id
+
+
+def test_address_care_gap_unknown_gap_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.address_care_gap(gap_id="does-not-exist", resolution="Some resolution.")
+
+    assert _read_audit_entries() == []
+
+
+def test_address_care_gap_conflicting_resolution_raises_tool_error():
+    note = _generate_note()
+    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+    server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+
+    with pytest.raises(ToolError):
+        server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Actually, patient declined.")
+
+    # No entry was written for the conflicting attempt (generate_note + identify + first address only).
+    assert len(_read_audit_entries()) == 3
+
+
+def test_address_care_gap_is_idempotent_for_identical_replay():
+    note = _generate_note()
+    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+    first = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+    second = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+
+    assert first == second
+    # Replaying the identical resolution did not write a second audit entry
+    # (generate_note + identify + one address only).
+    assert len(_read_audit_entries()) == 3
