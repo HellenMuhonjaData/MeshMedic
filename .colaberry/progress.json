@@ -3,13 +3,13 @@
   "project": "MeshMedic",
   "totals": {
     "stories_total": 13,
-    "stories_verified": 1,
+    "stories_verified": 2,
     "stories_submitted": 0,
-    "stories_in_progress": 0,
-    "stories_not_started": 12,
+    "stories_in_progress": 11,
+    "stories_not_started": 0,
     "criteria_total": 41,
-    "criteria_passed": 5,
-    "points_awarded": 62
+    "criteria_passed": 8,
+    "points_awarded": 124
   },
   "stories": [
     {
@@ -34,7 +34,7 @@
           "passed": true
         },
         {
-          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
+          "text": "Trust â no tab shows a number, a connection or a result the project has not actually produced.",
           "passed": true
         }
       ],
@@ -87,19 +87,15 @@
       "notes": "Added approve_encounter_note and reject_encounter_note MCP tools. Audit trail (audit_log.jsonl) is the single source of truth for note status (generate_note -> approve_note|reject_note keyed by note_id), so approval/rejection is always traceable back to the AI draft it decided on.",
       "updated_at": "2026-09-02T19:44:09.934Z",
       "verification": {
-        "state": "not_started",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a patient encounter, when the AI generates a note, then the clinician can review and approve it.",
-          "Given a clinician rejects a note, when they provide feedback, then the system logs the action in the audit trail.",
-          "Trust: The audit trail must show the AI's note and the clinician's approval or rejection."
-        ]
+        "verified_at": "2026-09-02T19:46:35.306Z",
+        "commit_sha": "cc6b4ce07425e2b79b7f350bb6a2ad6773416e8d",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/cc6b4ce07425e2b79b7f350bb6a2ad6773416e8d",
+        "commit_at": "2026-09-02T19:36:32Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -125,7 +121,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -163,7 +159,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -201,7 +197,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -239,7 +235,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -277,7 +273,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -315,7 +311,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -353,7 +349,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -391,7 +387,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -429,7 +425,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -467,7 +463,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -505,7 +501,7 @@
       "notes": null,
       "updated_at": null,
       "verification": {
-        "state": "not_started",
+        "state": "in_progress",
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
@@ -561,7 +557,7 @@
   "guardrailEnforced": {
     "REQ-006": {
       "enforced": false,
-      "note": "No audit log exists yet — nothing has been built."
+      "note": "No audit log exists yet â nothing has been built."
     },
     "REQ-011": {
       "enforced": false,
@@ -569,7 +565,7 @@
     },
     "REQ-014": {
       "enforced": false,
-      "note": "No AI action pathway exists yet — nothing to gate."
+      "note": "No AI action pathway exists yet â nothing to gate."
     },
     "REQ-018": {
       "enforced": false,
@@ -605,19 +601,19 @@
         "id": 1,
         "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.",
         "done": true,
-        "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page — fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."
+        "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page â fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."
       },
       {
         "id": 2,
         "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.",
         "done": true,
-        "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only — the one place sample data legitimately applies)."
+        "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only â the one place sample data legitimately applies)."
       },
       {
         "id": 3,
         "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.",
         "done": true,
-        "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) — when served normally, fetched data overwrites it."
+        "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) â when served normally, fetched data overwrites it."
       },
       {
         "id": 4,
@@ -627,7 +623,7 @@
       },
       {
         "id": 5,
-        "text": "Trust — no tab shows a number, a connection, or a result the project has not actually produced.",
+        "text": "Trust â no tab shows a number, a connection, or a result the project has not actually produced.",
         "done": true,
         "note": "Systems and guardrail status are always real (never toggled by sample mode). Outcomes shows \"Not measured yet\" in real mode. Story status is honestly not-started everywhere."
       }
@@ -641,12 +637,12 @@
     },
     {
       "date": "2026-08-17",
-      "text": "Systems and guardrail statuses are treated as always-real, never toggled by sample mode — connection state and code-enforcement state are facts, not something safe to fabricate.",
+      "text": "Systems and guardrail statuses are treated as always-real, never toggled by sample mode â connection state and code-enforcement state are facts, not something safe to fabricate.",
       "tab": "guardrails"
     },
     {
       "date": "2026-08-18",
-      "text": "REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly — flagged as an open gap rather than force-mapped to an unrelated story.",
+      "text": "REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly â flagged as an open gap rather than force-mapped to an unrelated story.",
       "tab": "guardrails"
     }
   ],
