@@ -394,21 +394,30 @@
       "criteria": [
         {
           "text": "Given an AI recommendation, when the system displays it, then it shows a confidence score.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a low-confidence recommendation, when the clinician reviews it, then they see an explanation for the low confidence.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log all confidence scores and clinician interactions.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_suggest_codes_flags_low_confidence_with_reason",
+        "test_suggest_codes_low_confidence_without_reason_raises_and_does_not_audit",
+        "test_identify_care_gaps_flags_low_confidence_with_reason",
+        "test_identify_care_gaps_low_confidence_without_reason_raises_and_does_not_audit",
+        "test_identify_care_gaps_rejects_whole_batch_if_any_gap_fails_validation"
+      ],
+      "notes": "STORY-008 maps to the same REQ-008 text as STORY-003 (flagged to user before building) -- for notes specifically, STORY-003 already satisfied all 3 criteria (GeneratedNote always returns confidence; warning/confidence_reason on low ones; audited). User chose to extend confidence scoring to code suggestions and care gaps too, rather than call it done notes-only, so \"AI recommendation\" is covered generically, not just notes. suggest_codes gained confidence/confidence_reason (one score per suggestion set, mirrors generate_encounter_note). identify_care_gaps changed its descriptions:list[str] parameter to gaps:list[CareGapInput] (confidence is per-gap, not per-call, consistent with STORY-005's decision that gaps are addressed independently -- one encounter can surface both a high- and low-confidence gap). All gaps in a call are validated before any audit entry for that call is written, so a call is all-or-nothing rather than partially recorded if one gap fails validation. Both new paths reuse the existing CONFIDENCE_THRESHOLD constant and warning-string format from STORY-003, no new confidence logic invented. Updated all existing identify_care_gaps test call sites for the new signature; all 33 pre-existing tests still pass (no regression).",
+      "updated_at": "2026-09-03T14:37:52.245Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

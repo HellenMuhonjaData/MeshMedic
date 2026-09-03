@@ -301,6 +301,7 @@ def _suggest_codes(note_id):
                 code="99213", code_system="cpt", description="Established patient office visit, low complexity"
             ),
         ],
+        confidence=0.95,
     )
 
 
@@ -327,6 +328,38 @@ def test_suggest_codes_unknown_note_id_raises_and_does_not_audit():
         _suggest_codes("does-not-exist")
 
     assert _read_audit_entries() == []
+
+
+def test_suggest_codes_flags_low_confidence_with_reason():
+    note = _generate_note()
+
+    suggestion = server.suggest_codes(
+        note_id=note.note_id,
+        codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+        confidence=0.4,
+        confidence_reason="Transcript doesn't clearly support a headache-only visit; may need a broader code.",
+    )
+
+    assert suggestion.flagged is True
+    assert suggestion.warning is not None
+
+    entries = _read_audit_entries()
+    assert entries[1]["flagged"] is True
+    assert entries[1]["confidence"] == 0.4
+
+
+def test_suggest_codes_low_confidence_without_reason_raises_and_does_not_audit():
+    note = _generate_note()
+
+    with pytest.raises(ToolError):
+        server.suggest_codes(
+            note_id=note.note_id,
+            codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+            confidence=0.4,
+        )
+
+    # Only the generate_note entry exists -- nothing from the rejected call.
+    assert len(_read_audit_entries()) == 1
 
 
 def test_approve_codes_happy_path():
@@ -409,12 +442,22 @@ def test_approve_codes_is_idempotent_for_identical_replay():
     assert len(_read_audit_entries()) == 3
 
 
+def _identify_gaps(note_id, descriptions, confidence=0.95, confidence_reason=None):
+    return server.identify_care_gaps(
+        note_id=note_id,
+        gaps=[
+            server.CareGapInput(description=d, confidence=confidence, confidence_reason=confidence_reason)
+            for d in descriptions
+        ],
+    )
+
+
 def test_identify_care_gaps_happy_path_returns_independent_gaps():
     note = _generate_note()
 
-    gaps = server.identify_care_gaps(
-        note_id=note.note_id,
-        descriptions=[
+    gaps = _identify_gaps(
+        note.note_id,
+        [
             "Patient overdue for mammogram - last screening 3+ years ago",
             "No documented flu vaccine for current season",
         ],
@@ -425,6 +468,8 @@ def test_identify_care_gaps_happy_path_returns_independent_gaps():
     assert gaps[0].gap_id != gaps[1].gap_id
     assert gaps[0].description.startswith("Patient overdue")
     assert gaps[1].description.startswith("No documented flu")
+    assert gaps[0].flagged is False
+    assert gaps[0].warning is None
 
     entries = _read_audit_entries()
     assert len(entries) == 3
@@ -436,14 +481,59 @@ def test_identify_care_gaps_happy_path_returns_independent_gaps():
 
 def test_identify_care_gaps_unknown_note_id_raises_and_does_not_audit():
     with pytest.raises(ResourceNotFoundError):
-        server.identify_care_gaps(note_id="does-not-exist", descriptions=["Some gap."])
+        _identify_gaps("does-not-exist", ["Some gap."])
 
     assert _read_audit_entries() == []
 
 
+def test_identify_care_gaps_flags_low_confidence_with_reason():
+    note = _generate_note()
+
+    gaps = _identify_gaps(
+        note.note_id,
+        ["Possible missed screening, unclear from transcript"],
+        confidence=0.3,
+        confidence_reason="Transcript only vaguely mentions a prior test, not what kind.",
+    )
+
+    assert gaps[0].flagged is True
+    assert gaps[0].warning is not None
+    assert "0.30" in gaps[0].warning
+
+    entries = _read_audit_entries()
+    assert entries[1]["flagged"] is True
+    assert entries[1]["confidence"] == 0.3
+
+
+def test_identify_care_gaps_low_confidence_without_reason_raises_and_does_not_audit():
+    note = _generate_note()
+
+    with pytest.raises(ToolError):
+        _identify_gaps(note.note_id, ["Some vague gap."], confidence=0.3)
+
+    # Only the generate_note entry exists -- nothing from the rejected call.
+    assert len(_read_audit_entries()) == 1
+
+
+def test_identify_care_gaps_rejects_whole_batch_if_any_gap_fails_validation():
+    note = _generate_note()
+
+    with pytest.raises(ToolError):
+        server.identify_care_gaps(
+            note_id=note.note_id,
+            gaps=[
+                server.CareGapInput(description="High confidence gap.", confidence=0.95),
+                server.CareGapInput(description="Low confidence, no reason.", confidence=0.2),
+            ],
+        )
+
+    # Neither gap was written -- validated before any audit entry for this call, not partially.
+    assert len(_read_audit_entries()) == 1  # generate_note only
+
+
 def test_address_care_gap_happy_path():
     note = _generate_note()
-    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+    gaps = _identify_gaps(note.note_id, ["Overdue for mammogram."])
 
     addressed = server.address_care_gap(
         gap_id=gaps[0].gap_id,
@@ -463,10 +553,7 @@ def test_address_care_gap_happy_path():
 
 def test_care_gaps_from_same_call_are_addressed_independently():
     note = _generate_note()
-    gaps = server.identify_care_gaps(
-        note_id=note.note_id,
-        descriptions=["Overdue for mammogram.", "Missing flu vaccine."],
-    )
+    gaps = _identify_gaps(note.note_id, ["Overdue for mammogram.", "Missing flu vaccine."])
 
     server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
 
@@ -488,7 +575,7 @@ def test_address_care_gap_unknown_gap_id_raises_and_does_not_audit():
 
 def test_address_care_gap_conflicting_resolution_raises_tool_error():
     note = _generate_note()
-    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+    gaps = _identify_gaps(note.note_id, ["Overdue for mammogram."])
     server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
 
     with pytest.raises(ToolError):
@@ -500,7 +587,7 @@ def test_address_care_gap_conflicting_resolution_raises_tool_error():
 
 def test_address_care_gap_is_idempotent_for_identical_replay():
     note = _generate_note()
-    gaps = server.identify_care_gaps(note_id=note.note_id, descriptions=["Overdue for mammogram."])
+    gaps = _identify_gaps(note.note_id, ["Overdue for mammogram."])
     first = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
     second = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
 

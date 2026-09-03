@@ -79,6 +79,9 @@ class SuggestedCodes(BaseModel):
     ehr_system: str
     status: Literal["draft"]
     codes: list[CodeSuggestion]
+    confidence: float
+    flagged: bool
+    warning: str | None
     suggested_at: str
 
 
@@ -93,6 +96,12 @@ class ReviewedCodes(BaseModel):
     reviewed_at: str
 
 
+class CareGapInput(BaseModel):
+    description: Annotated[str, Field(min_length=1, max_length=300)]
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)]
+    confidence_reason: Annotated[str | None, Field(max_length=1000)] = None
+
+
 class CareGap(BaseModel):
     gap_id: str
     note_id: str
@@ -100,6 +109,9 @@ class CareGap(BaseModel):
     ehr_system: str
     status: Literal["flagged"]
     description: str
+    confidence: float
+    flagged: bool
+    warning: str | None
     identified_at: str
 
 
@@ -678,6 +690,8 @@ def _find_suggestion(suggestion_id: str) -> dict | None:
 def suggest_codes(
     note_id: Annotated[str, Field(min_length=1)],
     codes: Annotated[list[CodeSuggestion], Field(min_length=1)],
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)],
+    confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
 ) -> SuggestedCodes:
     """
     Record AI-suggested ICD-10/CPT codes for a previously generated encounter
@@ -691,6 +705,13 @@ def suggest_codes(
     ICD-10/CPT database wired into this system, so correctness is checked by
     clinician review, not computed here.
 
+    You also assess your own `confidence` (0.0-1.0) in this whole code set --
+    one score for the set, same as this server's confidence pattern
+    elsewhere. Below CONFIDENCE_THRESHOLD, this tool flags the suggestion and
+    requires `confidence_reason` (REQ-008: a warning needs an explanation).
+    There's no UI here, so the flag surfaces as a `warning` string -- relay it
+    to the clinician yourself.
+
     The returned suggestion set is always status="draft": it is not billing
     documentation until a clinician reviews and approves it.
     """
@@ -701,9 +722,18 @@ def suggest_codes(
             "exists (generate_encounter_note) before suggesting codes for it."
         )
 
+    flagged = confidence < CONFIDENCE_THRESHOLD
+    if flagged and not confidence_reason:
+        raise ToolError(
+            f"confidence={confidence!r} is below the low-confidence threshold "
+            f"({CONFIDENCE_THRESHOLD}); confidence_reason is required so the "
+            "warning carries an explanation (REQ-008)."
+        )
+
     generated = note_record["generated"]
     suggestion_id = str(uuid.uuid4())
     suggested_at = datetime.now(timezone.utc).isoformat()
+    warning = f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
 
     _append_audit_entry(
         {
@@ -714,6 +744,9 @@ def suggest_codes(
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],
             "codes": [c.model_dump() for c in codes],
+            "confidence": confidence,
+            "flagged": flagged,
+            "confidence_reason": confidence_reason,
             "status": "draft",
         }
     )
@@ -725,6 +758,9 @@ def suggest_codes(
         ehr_system=generated["ehr_system"],
         status="draft",
         codes=codes,
+        confidence=confidence,
+        flagged=flagged,
+        warning=warning,
         suggested_at=suggested_at,
     )
 
@@ -893,7 +929,7 @@ def _find_gap(gap_id: str) -> dict | None:
 @mcp.tool()
 def identify_care_gaps(
     note_id: Annotated[str, Field(min_length=1)],
-    descriptions: Annotated[list[Annotated[str, Field(min_length=1, max_length=300)]], Field(min_length=1)],
+    gaps: Annotated[list[CareGapInput], Field(min_length=1)],
 ) -> list[CareGap]:
     """
     Flag potential care gaps found in a previously generated encounter note
@@ -901,14 +937,21 @@ def identify_care_gaps(
     audit trail (REQ-006). Call this only for a note_id returned by
     generate_encounter_note.
 
-    You (the calling model) compose each gap's `description` yourself,
-    grounded in the note and its transcript/chart -- e.g. an overdue
-    screening or a missing vaccination implied by the encounter. This tool
-    does not derive or validate care gaps against any clinical-guideline
-    database; there is none wired into this system, so false positives are
-    caught by clinician review, not computed here.
+    You (the calling model) compose each gap yourself as {description,
+    confidence, confidence_reason}, grounded in the note and its
+    transcript/chart -- e.g. an overdue screening or a missing vaccination
+    implied by the encounter. This tool does not derive or validate care
+    gaps against any clinical-guideline database; there is none wired into
+    this system, so false positives are caught by clinician review, not
+    computed here.
 
-    Each description becomes its own CareGap with its own gap_id, addressed
+    Confidence is per-gap, not per-call: gaps from the same encounter can
+    have different confidence, and each is flagged/explained independently
+    (REQ-008) the same way it's addressed independently -- below
+    CONFIDENCE_THRESHOLD, that gap's `confidence_reason` is required, or
+    this raises ToolError before any gap in the call is recorded.
+
+    Each input becomes its own CareGap with its own gap_id, addressed
     independently via address_care_gap -- a clinician might resolve one gap
     today and leave another flagged for weeks. Unlike suggest_codes, these
     are deliberately not bundled into one shared decision: bundling would
@@ -921,11 +964,21 @@ def identify_care_gaps(
             "exists (generate_encounter_note) before identifying care gaps for it."
         )
 
+    for gap_input in gaps:
+        if gap_input.confidence < CONFIDENCE_THRESHOLD and not gap_input.confidence_reason:
+            raise ToolError(
+                f"confidence={gap_input.confidence!r} for {gap_input.description!r} is below "
+                f"the low-confidence threshold ({CONFIDENCE_THRESHOLD}); confidence_reason is "
+                "required so the warning carries an explanation (REQ-008)."
+            )
+
     generated = note_record["generated"]
     identified_at = datetime.now(timezone.utc).isoformat()
-    gaps: list[CareGap] = []
-    for description in descriptions:
+    results: list[CareGap] = []
+    for gap_input in gaps:
         gap_id = str(uuid.uuid4())
+        flagged = gap_input.confidence < CONFIDENCE_THRESHOLD
+        warning = f"Low confidence ({gap_input.confidence:.2f}): {gap_input.confidence_reason}" if flagged else None
         _append_audit_entry(
             {
                 "timestamp": identified_at,
@@ -934,22 +987,28 @@ def identify_care_gaps(
                 "note_id": note_id,
                 "ehr_system": generated["ehr_system"],
                 "patient_id": generated["patient_id"],
-                "description": description,
+                "description": gap_input.description,
+                "confidence": gap_input.confidence,
+                "flagged": flagged,
+                "confidence_reason": gap_input.confidence_reason,
                 "status": "flagged",
             }
         )
-        gaps.append(
+        results.append(
             CareGap(
                 gap_id=gap_id,
                 note_id=note_id,
                 patient_id=generated["patient_id"],
                 ehr_system=generated["ehr_system"],
                 status="flagged",
-                description=description,
+                description=gap_input.description,
+                confidence=gap_input.confidence,
+                flagged=flagged,
+                warning=warning,
                 identified_at=identified_at,
             )
         )
-    return gaps
+    return results
 
 
 @mcp.tool()
