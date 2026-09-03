@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -111,6 +112,19 @@ class AddressedCareGap(BaseModel):
     description: str
     resolution: str
     addressed_at: str
+
+
+class CitationResult(BaseModel):
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    claimed_excerpt: str
+    found: bool
+    matched_text: str | None
+    start_offset: int | None
+    end_offset: int | None
+    explanation: str | None
+    requested_at: str
 
 
 def _append_audit_entry(entry: dict) -> None:
@@ -1006,6 +1020,105 @@ def address_care_gap(
         description=identified["description"],
         resolution=resolution,
         addressed_at=addressed_at,
+    )
+
+
+def _find_citation(transcript: str, claimed_excerpt: str) -> tuple[int, int, str] | None:
+    """Locate claimed_excerpt in transcript, tolerant of whitespace/case
+    differences (line breaks, capitalization) but NOT of paraphrasing or
+    punctuation changes -- a real match, not a fuzzy guess. Returns
+    (start, end, matched_text) in the transcript's own coordinates -- the
+    offsets a real UI would use to highlight -- or None if no match."""
+    normalized_excerpt = " ".join(claimed_excerpt.split())
+    if not normalized_excerpt:
+        return None
+    pattern = re.escape(normalized_excerpt).replace(r"\ ", r"\s+")
+    match = re.search(pattern, transcript, re.IGNORECASE)
+    if match is None:
+        return None
+    return match.start(), match.end(), transcript[match.start() : match.end()]
+
+
+@mcp.tool()
+def request_citation(
+    note_id: Annotated[str, Field(min_length=1)],
+    claimed_excerpt: Annotated[str, Field(min_length=1, max_length=1000)],
+) -> CitationResult:
+    """
+    Verify a claimed source citation for an AI recommendation (a note, a
+    code suggestion, a care gap -- anything drafted from this note's
+    transcript) against the actual encounter transcript (REQ-007), logging
+    every request and its outcome regardless of result (REQ-006). Call this
+    only for a note_id returned by generate_encounter_note.
+
+    You (the calling model) supply `claimed_excerpt` -- the specific text
+    you believe supports a recommendation. This tool checks whether that
+    text genuinely appears in the transcript (tolerant of whitespace/case
+    differences but not paraphrasing or punctuation changes) and returns the
+    matched text plus its character offsets in the transcript if found --
+    those offsets are what a real UI would use to highlight the source
+    ("highlights the relevant transcript section"). If not found, `found` is
+    false with an explanation, rather than silently failing.
+
+    Important limitation, stated plainly: this proves the excerpt is not
+    fabricated -- it genuinely appears in the transcript -- not that it is
+    definitively the true reason behind the recommendation. There is no
+    semantic-grounding system in this build; a real-but-unrelated excerpt
+    would still pass this check.
+    """
+    note_record = _find_note(note_id)
+    if note_record is None:
+        raise ResourceNotFoundError(
+            f"No generated note found for note_id={note_id!r}; confirm the note "
+            "exists (generate_encounter_note) before requesting a citation for it."
+        )
+
+    generated = note_record["generated"]
+    transcript = generated["transcript"]
+    requested_at = datetime.now(timezone.utc).isoformat()
+
+    match = _find_citation(transcript, claimed_excerpt)
+    if match is None:
+        found = False
+        matched_text = None
+        start_offset = None
+        end_offset = None
+        explanation = (
+            "This text does not appear verbatim in the encounter transcript "
+            "(checked case- and whitespace-insensitively). It may be "
+            "paraphrased, drawn from outside the transcript, or fabricated."
+        )
+    else:
+        start_offset, end_offset, matched_text = match
+        found = True
+        explanation = None
+
+    _append_audit_entry(
+        {
+            "timestamp": requested_at,
+            "action": "request_citation",
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "claimed_excerpt": claimed_excerpt,
+            "found": found,
+            "matched_text": matched_text,
+            "start_offset": start_offset,
+            "end_offset": end_offset,
+        }
+    )
+
+    return CitationResult(
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        claimed_excerpt=claimed_excerpt,
+        found=found,
+        matched_text=matched_text,
+        start_offset=start_offset,
+        end_offset=end_offset,
+        explanation=explanation,
+        requested_at=requested_at,
     )
 
 

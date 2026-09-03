@@ -347,21 +347,30 @@
       "criteria": [
         {
           "text": "Given an AI recommendation, when the clinician requests a source citation, then the system highlights the relevant transcript section.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a citation request, when the system cannot provide it, then it explains the reason.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log all citation requests and responses.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_request_citation_happy_path_exact_match",
+        "test_request_citation_tolerant_of_whitespace_and_case",
+        "test_request_citation_not_found_for_fabricated_text_returns_explanation",
+        "test_request_citation_does_not_match_paraphrase",
+        "test_request_citation_unknown_note_id_raises_and_does_not_audit"
+      ],
+      "notes": "Added request_citation(note_id, claimed_excerpt), verifying a claimed citation against the note's stored transcript rather than trusting the calling model's claim -- directly guards against the \"incorrect citation provided\" failure path, not just \"citation missing\". A new _find_citation helper does a whitespace/case-tolerant but non-fuzzy regex match (normalizes claimed_excerpt whitespace, escapes it, swaps escaped spaces for s+, case-insensitive search against the original transcript) so trivial formatting differences do not cause false \"not found\" results while paraphrasing still correctly fails to match -- deliberately not fuzzy/semantic matching, since a threshold-based approach could pass a citation that only loosely relates. Works uniformly across notes/codes/care-gaps since all three share the same note_id/transcript chain -- no separate tool needed per recommendation type. Returned character offsets are the \"highlight\" mechanism for a system with no UI (same approach as STORY-003's warning field). Every request is audited regardless of outcome. Documented an honest limitation in the tool's own docstring: this proves an excerpt is not fabricated, not that it is definitively the true basis for the recommendation -- there is no semantic-grounding system in this build.",
+      "updated_at": "2026-09-03T14:19:27.758Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

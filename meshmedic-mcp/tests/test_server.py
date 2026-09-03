@@ -562,3 +562,74 @@ def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypat
     assert len(entries) == 1
     assert entries[0]["outcome"] == "failure"
     assert entries[0]["error_class"] == "UpstreamUnavailable"
+
+
+def test_request_citation_happy_path_exact_match():
+    note = _generate_note()
+
+    result = server.request_citation(
+        note_id=note.note_id,
+        claimed_excerpt="Patient reports mild headache for two days, no fever.",
+    )
+
+    assert result.found is True
+    assert result.matched_text == "Patient reports mild headache for two days, no fever."
+    assert result.start_offset == 0
+    assert result.end_offset == len("Patient reports mild headache for two days, no fever.")
+    assert result.explanation is None
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[1]["action"] == "request_citation"
+    assert entries[1]["found"] is True
+
+
+def test_request_citation_tolerant_of_whitespace_and_case():
+    note = _generate_note()
+
+    result = server.request_citation(
+        note_id=note.note_id,
+        claimed_excerpt="  patient   reports MILD headache\nfor two days, no fever.  ",
+    )
+
+    assert result.found is True
+    assert result.matched_text == "Patient reports mild headache for two days, no fever."
+
+
+def test_request_citation_not_found_for_fabricated_text_returns_explanation():
+    note = _generate_note()
+
+    result = server.request_citation(
+        note_id=note.note_id,
+        claimed_excerpt="Patient reports chest pain radiating to the left arm.",
+    )
+
+    assert result.found is False
+    assert result.matched_text is None
+    assert result.start_offset is None
+    assert result.explanation is not None
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2
+    assert entries[1]["action"] == "request_citation"
+    assert entries[1]["found"] is False
+
+
+def test_request_citation_does_not_match_paraphrase():
+    note = _generate_note()
+
+    # A reasonable paraphrase of the transcript, not a verbatim quote --
+    # must NOT be reported as found, proving this is a real match, not fuzzy.
+    result = server.request_citation(
+        note_id=note.note_id,
+        claimed_excerpt="the patient has had a headache for a couple of days",
+    )
+
+    assert result.found is False
+
+
+def test_request_citation_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.request_citation(note_id="does-not-exist", claimed_excerpt="Some text.")
+
+    assert _read_audit_entries() == []
