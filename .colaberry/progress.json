@@ -298,21 +298,32 @@
       "criteria": [
         {
           "text": "Given a FHIR API endpoint, when the system requests patient data, then it retrieves and displays the data.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given an EHR system, when the system integrates with it, then it remains EHR-agnostic.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log all data retrieval actions from EHRs.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/epic_fhir_client.py",
+        "meshmedic-mcp/verify_epic_sandbox.py",
+        "meshmedic-mcp/pyproject.toml",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_fetch_patient_from_ehr_epic_happy_path",
+        "test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure",
+        "test_fetch_patient_from_ehr_not_found_raises_and_logs_failure",
+        "test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure"
+      ],
+      "notes": "This is the first story with a real external system dependency. Registered a Backend Systems app in Epic on FHIR (fhir.epic.com), generated an RSA key pair for SMART Backend Services JWT-assertion auth (private key kept strictly local and gitignored, only the public JWKS committed), and confirmed the real non-production FHIR base URL and OAuth2 flow end-to-end via a manual smoke test (meshmedic-mcp/verify_epic_sandbox.py, run by hand -- not part of the automated pytest suite, since it makes a real network call and unit tests must stay I/O-free per the repo's testing rules) against Epic's open sandbox with synthetic test-patient data. New epic_fhir_client.py module (separate responsibility from the MCP tool definitions) handles token exchange + Patient.Read. New fetch_patient_from_ehr MCP tool added as a standalone capability rather than reworking search_ehr_patient/get_patient_chart, to avoid regressing STORY-001 through STORY-005 which depend on the existing local sample_patients.py ID space -- Epic's real FHIR IDs are a different, unrelated ID space. oracle_health honestly raises ToolError (not connected) rather than faking a result, satisfying \"remains EHR-agnostic\" via a shared interface without pretending a second real connection exists. Every call, success or failure, is audited.",
+      "updated_at": "2026-09-03T12:44:57.173Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

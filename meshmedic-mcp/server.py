@@ -8,6 +8,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import BaseModel, Field
 
+from epic_fhir_client import EpicFHIRError, fetch_patient
 from sample_patients import SAMPLE_PATIENTS
 
 mcp = MCPServer("meshmedic")
@@ -240,6 +241,88 @@ def get_patient_chart(ehr_system: str, patient_id: str) -> dict:
         "birthDate": patient["date_of_birth"],
         "managingOrganization": {"display": ehr_system},
     }
+
+
+@mcp.tool()
+def fetch_patient_from_ehr(
+    ehr_system: Literal["epic", "oracle_health"],
+    fhir_patient_id: Annotated[str, Field(min_length=1)],
+) -> dict:
+    """
+    Retrieve a patient's FHIR resource directly from a real EHR system's FHIR
+    API (REQ-009), logging every retrieval attempt in the audit trail
+    regardless of outcome (REQ-006). Same interface across EHR systems
+    (REQ-010: EHR-agnostic) -- only `ehr_system` changes which backend is
+    called.
+
+    `fhir_patient_id` must be the EHR's own FHIR-assigned patient ID (not an
+    MRN, and not one of this server's local sample_patients.py IDs -- those
+    are a separate, unrelated ID space used by search_ehr_patient /
+    generate_encounter_note for the note-review walking skeleton).
+
+    Only Epic has a real sandbox connection in this build. Oracle Health/
+    Cerner is not connected -- this raises ToolError rather than returning
+    fabricated data, consistent with this project's rule against showing a
+    result the system hasn't actually produced.
+    """
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if ehr_system == "oracle_health":
+        _append_audit_entry(
+            {
+                "timestamp": timestamp,
+                "action": "fetch_ehr_patient",
+                "ehr_system": ehr_system,
+                "fhir_patient_id": fhir_patient_id,
+                "outcome": "failure",
+                "error_class": "UpstreamUnavailable",
+            }
+        )
+        raise ToolError(
+            "oracle_health has no real FHIR sandbox connected in this build -- "
+            "only epic is wired up."
+        )
+
+    try:
+        patient = fetch_patient(fhir_patient_id)
+    except EpicFHIRError as e:
+        _append_audit_entry(
+            {
+                "timestamp": timestamp,
+                "action": "fetch_ehr_patient",
+                "ehr_system": ehr_system,
+                "fhir_patient_id": fhir_patient_id,
+                "outcome": "failure",
+                "error_class": "UpstreamUnavailable",
+            }
+        )
+        raise ToolError(f"Could not retrieve patient from Epic: {e}") from e
+
+    if patient is None:
+        _append_audit_entry(
+            {
+                "timestamp": timestamp,
+                "action": "fetch_ehr_patient",
+                "ehr_system": ehr_system,
+                "fhir_patient_id": fhir_patient_id,
+                "outcome": "failure",
+                "error_class": "ResourceNotFoundError",
+            }
+        )
+        raise ResourceNotFoundError(
+            f"No patient found in {ehr_system} for fhir_patient_id={fhir_patient_id!r}."
+        )
+
+    _append_audit_entry(
+        {
+            "timestamp": timestamp,
+            "action": "fetch_ehr_patient",
+            "ehr_system": ehr_system,
+            "fhir_patient_id": fhir_patient_id,
+            "outcome": "success",
+        }
+    )
+    return patient
 
 
 @mcp.tool()

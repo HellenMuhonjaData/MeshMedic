@@ -508,3 +508,57 @@ def test_address_care_gap_is_idempotent_for_identical_replay():
     # Replaying the identical resolution did not write a second audit entry
     # (generate_note + identify + one address only).
     assert len(_read_audit_entries()) == 3
+
+
+def test_fetch_patient_from_ehr_epic_happy_path(monkeypatch):
+    fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3", "name": [{"family": "Lopez"}]}
+    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id: fake_patient)
+
+    result = server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3")
+
+    assert result == fake_patient
+
+    entries = _read_audit_entries()
+    assert len(entries) == 1
+    assert entries[0]["action"] == "fetch_ehr_patient"
+    assert entries[0]["ehr_system"] == "epic"
+    assert entries[0]["outcome"] == "success"
+
+
+def test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure():
+    with pytest.raises(ToolError):
+        server.fetch_patient_from_ehr(ehr_system="oracle_health", fhir_patient_id="some-id")
+
+    entries = _read_audit_entries()
+    assert len(entries) == 1
+    assert entries[0]["action"] == "fetch_ehr_patient"
+    assert entries[0]["ehr_system"] == "oracle_health"
+    assert entries[0]["outcome"] == "failure"
+    assert entries[0]["error_class"] == "UpstreamUnavailable"
+
+
+def test_fetch_patient_from_ehr_not_found_raises_and_logs_failure(monkeypatch):
+    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id: None)
+
+    with pytest.raises(ResourceNotFoundError):
+        server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="does-not-exist")
+
+    entries = _read_audit_entries()
+    assert len(entries) == 1
+    assert entries[0]["outcome"] == "failure"
+    assert entries[0]["error_class"] == "ResourceNotFoundError"
+
+
+def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypatch):
+    def _raise(fhir_patient_id):
+        raise server.EpicFHIRError("simulated network failure")
+
+    monkeypatch.setattr(server, "fetch_patient", _raise)
+
+    with pytest.raises(ToolError):
+        server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3")
+
+    entries = _read_audit_entries()
+    assert len(entries) == 1
+    assert entries[0]["outcome"] == "failure"
+    assert entries[0]["error_class"] == "UpstreamUnavailable"
