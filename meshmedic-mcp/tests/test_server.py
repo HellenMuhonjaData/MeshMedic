@@ -599,7 +599,7 @@ def test_address_care_gap_is_idempotent_for_identical_replay():
 
 def test_fetch_patient_from_ehr_epic_happy_path(monkeypatch):
     fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3", "name": [{"family": "Lopez"}]}
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id: fake_patient)
+    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient)
 
     result = server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3")
 
@@ -625,7 +625,7 @@ def test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure():
 
 
 def test_fetch_patient_from_ehr_not_found_raises_and_logs_failure(monkeypatch):
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id: None)
+    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: None)
 
     with pytest.raises(ResourceNotFoundError):
         server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="does-not-exist")
@@ -637,7 +637,7 @@ def test_fetch_patient_from_ehr_not_found_raises_and_logs_failure(monkeypatch):
 
 
 def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypatch):
-    def _raise(fhir_patient_id):
+    def _raise(fhir_patient_id, correlation_id):
         raise server.EpicFHIRError("simulated network failure")
 
     monkeypatch.setattr(server, "fetch_patient", _raise)

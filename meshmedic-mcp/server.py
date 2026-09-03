@@ -10,9 +10,27 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import BaseModel, Field
 
 from epic_fhir_client import EpicFHIRError, fetch_patient
+from logging_utils import (
+    ACCESS_DENIED,
+    TOOL_COMPLETED,
+    TOOL_ERROR,
+    TOOL_STARTED,
+    configure_json_logging,
+    log_event,
+    new_correlation_id,
+)
 from sample_patients import SAMPLE_PATIENTS
 
 mcp = MCPServer("meshmedic")
+
+# The installed mcp SDK (2.1.1) deprecated the protocol logging capability
+# (SEP-2577, 2026-07-28), and MCPServer never exposed a way to declare it --
+# on_set_logging_level isn't threaded through to the underlying Server. There
+# is no supported way to send notifications/message to the client here, so
+# tool/external-call/error boundaries are logged as structured JSON on
+# stderr instead (see logging_utils.py), which every MCP client already
+# captures from a stdio-launched server without a capability declaration.
+_logger = configure_json_logging()
 
 AUDIT_LOG_PATH = Path(__file__).parent / "audit_log.jsonl"
 
@@ -188,11 +206,21 @@ async def search_ehr_patient(
     history -- it only returns identity-matching candidates so you can confirm
     who you're working with before requesting anything else.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="search_ehr_patient", ehr_system=ehr_system,
+        search_key="mrn" if mrn else ("last_name+date_of_birth" if last_name else "none"),
+    )
     have_mrn = bool(mrn)
     have_name_dob = bool(last_name) and bool(date_of_birth)
 
     if not have_mrn and not have_name_dob:
         _write_audit_entry(ehr_system, mrn, last_name, date_of_birth, 0)
+        log_event(
+            _logger, "info", TOOL_COMPLETED, correlation_id,
+            tool="search_ehr_patient", outcome="success", match_count=0,
+        )
         return SearchResult(
             matches=[],
             count=0,
@@ -223,6 +251,10 @@ async def search_ehr_patient(
     _write_audit_entry(ehr_system, mrn, last_name, date_of_birth, len(found))
 
     if not found:
+        log_event(
+            _logger, "info", TOOL_COMPLETED, correlation_id,
+            tool="search_ehr_patient", outcome="success", match_count=0,
+        )
         return SearchResult(
             matches=[],
             count=0,
@@ -230,6 +262,10 @@ async def search_ehr_patient(
         )
 
     trimmed = found[:max_results]
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="search_ehr_patient", outcome="success", match_count=len(trimmed),
+    )
     return SearchResult(
         matches=[PatientMatch(**p) for p in trimmed],
         count=len(trimmed),
@@ -291,6 +327,11 @@ def fetch_patient_from_ehr(
     fabricated data, consistent with this project's rule against showing a
     result the system hasn't actually produced.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+    )
     timestamp = datetime.now(timezone.utc).isoformat()
 
     if ehr_system == "oracle_health":
@@ -304,13 +345,18 @@ def fetch_patient_from_ehr(
                 "error_class": "UpstreamUnavailable",
             }
         )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+            reason="ehr_system_not_connected",
+        )
         raise ToolError(
             "oracle_health has no real FHIR sandbox connected in this build -- "
             "only epic is wired up."
         )
 
     try:
-        patient = fetch_patient(fhir_patient_id)
+        patient = fetch_patient(fhir_patient_id, correlation_id)
     except EpicFHIRError as e:
         _append_audit_entry(
             {
@@ -321,6 +367,11 @@ def fetch_patient_from_ehr(
                 "outcome": "failure",
                 "error_class": "UpstreamUnavailable",
             }
+        )
+        log_event(
+            _logger, "error", TOOL_ERROR, correlation_id,
+            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+            error_class="UpstreamUnavailable",
         )
         raise ToolError(f"Could not retrieve patient from Epic: {e}") from e
 
@@ -335,6 +386,11 @@ def fetch_patient_from_ehr(
                 "error_class": "ResourceNotFoundError",
             }
         )
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+            error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(
             f"No patient found in {ehr_system} for fhir_patient_id={fhir_patient_id!r}."
         )
@@ -347,6 +403,10 @@ def fetch_patient_from_ehr(
             "fhir_patient_id": fhir_patient_id,
             "outcome": "success",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="fetch_patient_from_ehr", ehr_system=ehr_system, outcome="success",
     )
     return patient
 
@@ -386,7 +446,17 @@ def generate_encounter_note(
     The returned note is always status="draft": it is not clinical
     documentation until a clinician reviews and approves it.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="generate_encounter_note", ehr_system=ehr_system, patient_id=patient_id,
+    )
+
     if _find_patient(ehr_system, patient_id) is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="generate_encounter_note", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(
             f"No patient found for patient_id={patient_id!r} in ehr_system={ehr_system!r}; "
             "confirm identity with search_ehr_patient before generating a note."
@@ -394,6 +464,10 @@ def generate_encounter_note(
 
     flagged = confidence < CONFIDENCE_THRESHOLD
     if flagged and not confidence_reason:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="generate_encounter_note", error_class="ValidationError",
+        )
         raise ToolError(
             f"confidence={confidence!r} is below the low-confidence threshold "
             f"({CONFIDENCE_THRESHOLD}); confidence_reason is required so the "
@@ -418,6 +492,10 @@ def generate_encounter_note(
             "confidence_reason": confidence_reason,
             "status": "draft",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="generate_encounter_note", outcome="success", note_id=note_id, flagged=flagged,
     )
 
     return GeneratedNote(
@@ -488,11 +566,25 @@ def edit_encounter_note(
     entry. Editing a note that already has a recorded decision raises
     ToolError: once approved or rejected, a note's record is closed.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="edit_encounter_note", note_id=note_id,
+    )
+
     record = _find_note(note_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="edit_encounter_note", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
     if record["decision"] is not None:
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="edit_encounter_note", note_id=note_id, reason="note_locked_after_decision",
+        )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision "
             f"({record['decision']['action']}); it can no longer be edited."
@@ -501,6 +593,10 @@ def edit_encounter_note(
     generated = record["generated"]
     current_entry = record["latest_edit"] or generated
     if current_entry["note_text"] == edited_note_text:
+        log_event(
+            _logger, "info", TOOL_COMPLETED, correlation_id,
+            tool="edit_encounter_note", note_id=note_id, outcome="success", no_op=True,
+        )
         return EditedNote(
             note_id=note_id,
             patient_id=current_entry["patient_id"],
@@ -521,6 +617,10 @@ def edit_encounter_note(
             "note_text": edited_note_text,
             "status": "draft",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="edit_encounter_note", note_id=note_id, outcome="success", no_op=False,
     )
     return EditedNote(
         note_id=note_id,
@@ -553,8 +653,18 @@ def approve_encounter_note(
     audit entry. Approving a note that was already rejected (or vice
     versa) raises ToolError: a note gets exactly one clinician decision.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="approve_encounter_note", note_id=note_id,
+    )
+
     record = _find_note(note_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="approve_encounter_note", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
     generated = record["generated"]
@@ -563,6 +673,10 @@ def approve_encounter_note(
 
     if decision is not None:
         if decision["action"] == "approve_note" and decision["note_text"] == final_text:
+            log_event(
+                _logger, "info", TOOL_COMPLETED, correlation_id,
+                tool="approve_encounter_note", note_id=note_id, outcome="success", no_op=True,
+            )
             return ReviewedNote(
                 note_id=note_id,
                 patient_id=decision["patient_id"],
@@ -572,6 +686,10 @@ def approve_encounter_note(
                 feedback=None,
                 reviewed_at=decision["timestamp"],
             )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="approve_encounter_note", note_id=note_id, reason="conflicting_decision",
+        )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
             "a note gets exactly one clinician decision."
@@ -588,6 +706,10 @@ def approve_encounter_note(
             "note_text": final_text,
             "status": "approved",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="approve_encounter_note", note_id=note_id, outcome="success", no_op=False,
     )
     return ReviewedNote(
         note_id=note_id,
@@ -616,8 +738,18 @@ def reject_encounter_note(
     entry. Rejecting a note that was already approved (or vice versa)
     raises ToolError: a note gets exactly one clinician decision.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="reject_encounter_note", note_id=note_id,
+    )
+
     record = _find_note(note_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="reject_encounter_note", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
     generated = record["generated"]
@@ -626,6 +758,10 @@ def reject_encounter_note(
 
     if decision is not None:
         if decision["action"] == "reject_note" and decision.get("feedback") == feedback:
+            log_event(
+                _logger, "info", TOOL_COMPLETED, correlation_id,
+                tool="reject_encounter_note", note_id=note_id, outcome="success", no_op=True,
+            )
             return ReviewedNote(
                 note_id=note_id,
                 patient_id=decision["patient_id"],
@@ -635,6 +771,10 @@ def reject_encounter_note(
                 feedback=decision.get("feedback"),
                 reviewed_at=decision["timestamp"],
             )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="reject_encounter_note", note_id=note_id, reason="conflicting_decision",
+        )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
             "a note gets exactly one clinician decision."
@@ -652,6 +792,10 @@ def reject_encounter_note(
             "feedback": feedback,
             "status": "rejected",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="reject_encounter_note", note_id=note_id, outcome="success", no_op=False,
     )
     return ReviewedNote(
         note_id=note_id,
@@ -715,8 +859,18 @@ def suggest_codes(
     The returned suggestion set is always status="draft": it is not billing
     documentation until a clinician reviews and approves it.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="suggest_codes", note_id=note_id, code_count=len(codes),
+    )
+
     note_record = _find_note(note_id)
     if note_record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="suggest_codes", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
             "exists (generate_encounter_note) before suggesting codes for it."
@@ -724,6 +878,10 @@ def suggest_codes(
 
     flagged = confidence < CONFIDENCE_THRESHOLD
     if flagged and not confidence_reason:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="suggest_codes", error_class="ValidationError",
+        )
         raise ToolError(
             f"confidence={confidence!r} is below the low-confidence threshold "
             f"({CONFIDENCE_THRESHOLD}); confidence_reason is required so the "
@@ -749,6 +907,11 @@ def suggest_codes(
             "confidence_reason": confidence_reason,
             "status": "draft",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="suggest_codes", outcome="success", suggestion_id=suggestion_id,
+        code_count=len(codes), flagged=flagged,
     )
 
     return SuggestedCodes(
@@ -786,8 +949,18 @@ def approve_codes(
     versa) raises ToolError: a suggestion set gets exactly one clinician
     decision.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="approve_codes", suggestion_id=suggestion_id,
+    )
+
     record = _find_suggestion(suggestion_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="approve_codes", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
 
     suggested = record["suggested"]
@@ -797,6 +970,10 @@ def approve_codes(
 
     if decision is not None:
         if decision["action"] == "approve_codes" and decision["codes"] == final_codes_dump:
+            log_event(
+                _logger, "info", TOOL_COMPLETED, correlation_id,
+                tool="approve_codes", suggestion_id=suggestion_id, outcome="success", no_op=True,
+            )
             return ReviewedCodes(
                 suggestion_id=suggestion_id,
                 note_id=decision["note_id"],
@@ -807,6 +984,10 @@ def approve_codes(
                 feedback=None,
                 reviewed_at=decision["timestamp"],
             )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="approve_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+        )
         raise ToolError(
             f"suggestion_id={suggestion_id!r} already has a recorded decision "
             f"({decision['action']}); a suggestion set gets exactly one clinician decision."
@@ -824,6 +1005,10 @@ def approve_codes(
             "codes": final_codes_dump,
             "status": "approved",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="approve_codes", suggestion_id=suggestion_id, outcome="success", no_op=False,
     )
     return ReviewedCodes(
         suggestion_id=suggestion_id,
@@ -853,8 +1038,18 @@ def reject_codes(
     audit entry. Rejecting a set that was already approved (or vice versa)
     raises ToolError: a suggestion set gets exactly one clinician decision.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="reject_codes", suggestion_id=suggestion_id,
+    )
+
     record = _find_suggestion(suggestion_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="reject_codes", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
 
     suggested = record["suggested"]
@@ -862,6 +1057,10 @@ def reject_codes(
 
     if decision is not None:
         if decision["action"] == "reject_codes" and decision.get("feedback") == feedback:
+            log_event(
+                _logger, "info", TOOL_COMPLETED, correlation_id,
+                tool="reject_codes", suggestion_id=suggestion_id, outcome="success", no_op=True,
+            )
             return ReviewedCodes(
                 suggestion_id=suggestion_id,
                 note_id=decision["note_id"],
@@ -872,6 +1071,10 @@ def reject_codes(
                 feedback=decision.get("feedback"),
                 reviewed_at=decision["timestamp"],
             )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="reject_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+        )
         raise ToolError(
             f"suggestion_id={suggestion_id!r} already has a recorded decision "
             f"({decision['action']}); a suggestion set gets exactly one clinician decision."
@@ -891,6 +1094,10 @@ def reject_codes(
             "feedback": feedback,
             "status": "rejected",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="reject_codes", suggestion_id=suggestion_id, outcome="success", no_op=False,
     )
     return ReviewedCodes(
         suggestion_id=suggestion_id,
@@ -957,8 +1164,18 @@ def identify_care_gaps(
     are deliberately not bundled into one shared decision: bundling would
     misrepresent partial progress on the gaps from a single encounter.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="identify_care_gaps", note_id=note_id, gap_count=len(gaps),
+    )
+
     note_record = _find_note(note_id)
     if note_record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="identify_care_gaps", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
             "exists (generate_encounter_note) before identifying care gaps for it."
@@ -966,6 +1183,10 @@ def identify_care_gaps(
 
     for gap_input in gaps:
         if gap_input.confidence < CONFIDENCE_THRESHOLD and not gap_input.confidence_reason:
+            log_event(
+                _logger, "warning", TOOL_ERROR, correlation_id,
+                tool="identify_care_gaps", error_class="ValidationError",
+            )
             raise ToolError(
                 f"confidence={gap_input.confidence!r} for {gap_input.description!r} is below "
                 f"the low-confidence threshold ({CONFIDENCE_THRESHOLD}); confidence_reason is "
@@ -1008,6 +1229,10 @@ def identify_care_gaps(
                 identified_at=identified_at,
             )
         )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="identify_care_gaps", note_id=note_id, outcome="success", gap_count=len(results),
+    )
     return results
 
 
@@ -1033,8 +1258,18 @@ def address_care_gap(
     ToolError: a gap gets exactly one closing action, same as a note gets
     exactly one clinician decision.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="address_care_gap", gap_id=gap_id,
+    )
+
     record = _find_gap(gap_id)
     if record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="address_care_gap", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(f"No care gap found for gap_id={gap_id!r}.")
 
     identified = record["identified"]
@@ -1042,6 +1277,10 @@ def address_care_gap(
 
     if addressed is not None:
         if addressed["resolution"] == resolution:
+            log_event(
+                _logger, "info", TOOL_COMPLETED, correlation_id,
+                tool="address_care_gap", gap_id=gap_id, outcome="success", no_op=True,
+            )
             return AddressedCareGap(
                 gap_id=gap_id,
                 note_id=addressed["note_id"],
@@ -1052,6 +1291,10 @@ def address_care_gap(
                 resolution=addressed["resolution"],
                 addressed_at=addressed["timestamp"],
             )
+        log_event(
+            _logger, "warning", ACCESS_DENIED, correlation_id,
+            tool="address_care_gap", gap_id=gap_id, reason="gap_already_closed",
+        )
         raise ToolError(
             f"gap_id={gap_id!r} already has a recorded resolution; "
             "a care gap gets exactly one closing action."
@@ -1069,6 +1312,10 @@ def address_care_gap(
             "resolution": resolution,
             "status": "addressed",
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="address_care_gap", gap_id=gap_id, outcome="success", no_op=False,
     )
     return AddressedCareGap(
         gap_id=gap_id,
@@ -1125,8 +1372,18 @@ def request_citation(
     semantic-grounding system in this build; a real-but-unrelated excerpt
     would still pass this check.
     """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="request_citation", note_id=note_id,
+    )
+
     note_record = _find_note(note_id)
     if note_record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="request_citation", error_class="ResourceNotFoundError",
+        )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
             "exists (generate_encounter_note) before requesting a citation for it."
@@ -1165,6 +1422,10 @@ def request_citation(
             "start_offset": start_offset,
             "end_offset": end_offset,
         }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="request_citation", note_id=note_id, outcome="success", found=found,
     )
 
     return CitationResult(
