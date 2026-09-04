@@ -30,10 +30,30 @@ TOOL_ERROR = "tool_error"
 ACCESS_DENIED = "access_denied"
 EXTERNAL_CALL_STARTED = "external_call_started"
 EXTERNAL_CALL_FINISHED = "external_call_finished"
+SAMPLING_REQUEST_STARTED = "sampling_request_started"
+SAMPLING_REQUEST_FINISHED = "sampling_request_finished"
+SERVER_STARTED = "server_started"
 
 
 def configure_json_logging(level: int = logging.INFO) -> logging.Logger:
-    """Set up the shared logger once, at server construction time."""
+    """Set up the shared logger once, at server construction time.
+
+    Also caps httpx/httpcore's own loggers at WARNING. MCPServer's own
+    construction configures Python's ROOT logger at INFO via a RichHandler
+    (its `configure_logging`, driven by `log_level`, default "INFO") --
+    that's SDK behavior this file doesn't control. httpx's per-request
+    logger is INFO-level and propagates to root by default, so without
+    this, every real outbound call this server makes (Epic FHIR,
+    GitHub, anything using httpx) would print its full request URL --
+    a host, per this project's own rule against ever logging one -- to
+    stderr via that handler, outside this module's structured JSON
+    entirely. Verified this leak for real: a live, unmocked GitHub call
+    printed "HTTP Request: GET https://api.github.com/..." interleaved
+    with this module's own log lines before this fix.
+    """
+    for noisy_logger_name in ("httpx", "httpcore"):
+        logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
+
     logger = logging.getLogger(_LOGGER_NAME)
     logger.setLevel(level)
     if not logger.handlers:

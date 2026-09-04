@@ -1,17 +1,24 @@
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
-from mcp.server.mcpserver import Context, MCPServer
+import httpx
+from mcp.server.mcpserver import Context, ListRoots, MCPServer, Resolve, Sample
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
+from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, TextContent
 from pydantic import BaseModel, Field
 
 from epic_fhir_client import EpicFHIRError, fetch_patient
+from github_client import GitHubAPIError, get_issue_or_pr
 from logging_utils import (
     ACCESS_DENIED,
+    SAMPLING_REQUEST_FINISHED,
+    SAMPLING_REQUEST_STARTED,
+    SERVER_STARTED,
     TOOL_COMPLETED,
     TOOL_ERROR,
     TOOL_STARTED,
@@ -19,23 +26,63 @@ from logging_utils import (
     log_event,
     new_correlation_id,
 )
+from progress_utils import emit_progress
+from roots_guard import resolve_within_roots
 from sample_patients import SAMPLE_PATIENTS
 
 mcp = MCPServer("meshmedic")
 
-# The installed mcp SDK (2.1.1) deprecated the protocol logging capability
-# (SEP-2577, 2026-07-28), and MCPServer never exposed a way to declare it --
-# on_set_logging_level isn't threaded through to the underlying Server. There
-# is no supported way to send notifications/message to the client here, so
-# tool/external-call/error boundaries are logged as structured JSON on
-# stderr instead (see logging_utils.py), which every MCP client already
-# captures from a stdio-launched server without a capability declaration.
+# Without declaring the logging capability, a client is free to silently
+# drop every notifications/message this server sends -- that's the whole
+# reason to declare it up front, not an afterthought. This build can't:
+# the installed mcp SDK (2.1.1) deprecated the protocol logging capability
+# (SEP-2577, 2026-07-28) and MCPServer never threaded on_set_logging_level
+# through to the underlying lowlevel Server in the first place, so there is
+# no supported call on MCPServer's public API that declares it (confirmed
+# by inspecting MCPServer.__init__'s signature directly -- the parameter
+# doesn't exist to pass). Reaching into MCPServer._lowlevel_server (a
+# private attribute) to hand-register a handler was considered and
+# rejected: it would fight the SDK's own deprecation of the entire
+# capability for a channel (notifications/message) this file doesn't use
+# anyway. Every tool/external-call/access-denied/error boundary below is
+# logged as structured JSON on stderr instead (see logging_utils.py) --
+# stderr from a stdio-launched server is what every MCP client already
+# captures, unconditionally, with no capability negotiation involved, so
+# these lines are never silently dropped the way an undeclared
+# notifications/message would be.
 _logger = configure_json_logging()
 
 AUDIT_LOG_PATH = Path(__file__).parent / "audit_log.jsonl"
 
 # Below this, generate_encounter_note flags the note as low-confidence (REQ-008).
 CONFIDENCE_THRESHOLD = 0.7
+
+# read_transcript_file's cap, generous for a text transcript but bounded so a
+# huge file can't be read into the response wholesale.
+MAX_TRANSCRIPT_FILE_BYTES = 200_000
+
+# prioritize_care_gaps's sampling request. Short and generic on purpose --
+# no model name or API key belongs here; the client's own LLM handles both.
+PRIORITIZE_GAPS_SYSTEM_PROMPT = (
+    "You are helping a clinician triage a list of already-identified care "
+    "gaps for one patient. You are not given the chart, only the gap "
+    "descriptions below -- reason only from those. Rank them most urgent "
+    "to least urgent and give one short reason for each. This is a "
+    "suggestion for the clinician to review, not a decision."
+)
+PRIORITIZE_GAPS_MAX_TOKENS = 400
+
+# Bridges a sampling round-trip's start time (and the correlation id logged
+# at its start) from the resolver that requests it to the tool body that
+# receives the result -- the two are genuinely separate function
+# invocations in this SDK's resolver model (see _list_open_gaps_resolver's
+# docstring), so there is no other channel between them. Keyed by
+# ctx.request_id (unique per in-flight tools/call), popped by the tool body
+# on the normal path. If resolution fails before the tool body ever runs
+# (e.g. the client's model refuses -- see prioritize_care_gaps's docstring
+# for why that specific failure can't be caught here), the entry is never
+# popped; this is a small, bounded leak on a rare path, not an unbounded one.
+_sampling_calls: dict[str, tuple[str, float]] = {}
 
 
 class PatientMatch(BaseModel):
@@ -144,6 +191,40 @@ class AddressedCareGap(BaseModel):
     addressed_at: str
 
 
+class OpenCareGapSummary(BaseModel):
+    gap_id: str
+    description: str
+
+
+class CareGapPriorityResult(BaseModel):
+    patient_id: str
+    gap_count: int
+    open_gaps: list[OpenCareGapSummary]
+    degraded: bool
+    degraded_reason: str | None
+    ranking_text: str | None
+    prioritized_at: str
+
+
+class GitHubIssueStatus(BaseModel):
+    issue_number: int
+    ok: bool
+    found: bool | None
+    state: str | None
+    title: str | None
+    is_pull_request: bool | None
+    error: str | None
+    checked_at: str
+
+
+class TranscriptFileRead(BaseModel):
+    file_path: str
+    denied: bool
+    transcript: str | None
+    error: str | None
+    read_at: str
+
+
 class CitationResult(BaseModel):
     note_id: str
     patient_id: str
@@ -232,16 +313,12 @@ async def search_ehr_patient(
 
     candidates = [p for p in SAMPLE_PATIENTS if p["ehr_system"] == ehr_system]
     total = len(candidates)
-    meta = ctx.request_context.meta
-    progress_token = meta.get("progress_token") if meta else None
 
     found = []
     for position, candidate in enumerate(candidates, start=1):
-        if progress_token is not None:
-            # Only emit when the caller supplied a progress token -- no token means no one is listening.
-            await ctx.report_progress(
-                position, total, f"Checking candidate {position} of {total} (MRN {candidate['mrn']})"
-            )
+        await emit_progress(
+            ctx, position, total, f"Checking candidate {position} of {total} (MRN {candidate['mrn']})"
+        )
         if have_mrn:
             if candidate["mrn"].lower() == mrn.lower():
                 found.append(candidate)
@@ -306,9 +383,11 @@ def get_patient_chart(ehr_system: str, patient_id: str) -> dict:
 
 
 @mcp.tool()
-def fetch_patient_from_ehr(
+async def fetch_patient_from_ehr(
     ehr_system: Literal["epic", "oracle_health"],
     fhir_patient_id: Annotated[str, Field(min_length=1)],
+    *,
+    ctx: Context,
 ) -> dict:
     """
     Retrieve a patient's FHIR resource directly from a real EHR system's FHIR
@@ -326,6 +405,17 @@ def fetch_patient_from_ehr(
     Cerner is not connected -- this raises ToolError rather than returning
     fabricated data, consistent with this project's rule against showing a
     result the system hasn't actually produced.
+
+    This is a real network call (JWT-signed OAuth2 token exchange, then a
+    FHIR fetch, both against Epic's live sandbox) and can genuinely take a
+    couple of seconds, so it reports progress -- but only one tick, with no
+    total: `fetch_patient()` in epic_fhir_client.py performs its own two
+    HTTP calls internally as a single opaque unit from this tool's
+    perspective, so there's no real, already-known step count to report
+    against here without restructuring that module's public API purely to
+    serve this. A single "no total" progress notification (REQ pattern:
+    never invent a fake percentage) is the honest signal that real network
+    work is in flight.
     """
     correlation_id = new_correlation_id()
     log_event(
@@ -348,13 +438,17 @@ def fetch_patient_from_ehr(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="fetch_patient_from_ehr", ehr_system=ehr_system,
-            reason="ehr_system_not_connected",
+            reason="ehr_system_not_connected", error_class="AccessDenied",
         )
         raise ToolError(
             "oracle_health has no real FHIR sandbox connected in this build -- "
             "only epic is wired up."
         )
 
+    await emit_progress(
+        ctx, 0, None,
+        f"Contacting {ehr_system}'s FHIR sandbox for patient {fhir_patient_id} (token exchange + fetch, no fixed step count)",
+    )
     try:
         patient = fetch_patient(fhir_patient_id, correlation_id)
     except EpicFHIRError as e:
@@ -409,6 +503,121 @@ def fetch_patient_from_ehr(
         tool="fetch_patient_from_ehr", ehr_system=ehr_system, outcome="success",
     )
     return patient
+
+
+def _list_client_roots() -> ListRoots:
+    """Resolver body for the `roots` parameter below: returns the marker that
+    tells the framework to send a `roots/list` request to the connected
+    client and inject the `ListRootsResult` it answers with. See
+    roots_guard.py for how that result is used."""
+    return ListRoots()
+
+
+@mcp.tool()
+def read_transcript_file(
+    file_path: Annotated[str, Field(min_length=1, max_length=1000)],
+    roots: Annotated[ListRootsResult, Resolve(_list_client_roots)],
+) -> TranscriptFileRead:
+    """
+    Load an encounter transcript from a local file on disk, so a clinician
+    can point at a transcript file instead of pasting its text inline
+    before calling generate_encounter_note.
+
+    This is the one tool in this server that touches a filesystem path the
+    caller supplies, so it is roots-enforced: `roots` is not something you
+    (the calling model) pass -- it is filled automatically by asking the
+    connected client for its declared roots (`roots/list`), and `file_path`
+    is only served if its RESOLVED, real on-disk location (symlinks
+    followed, ".." collapsed) falls inside one of those roots. A path
+    outside every declared root is denied even if it looks like it's under
+    an allowed directory as a raw string -- see roots_guard.py's module
+    docstring for concrete examples of why a string check alone would not
+    be a real boundary.
+
+    A denial does not raise: it comes back as a normal result with
+    `denied=true` and `transcript=None`, so you see the outcome and can
+    decide what to do next (e.g. tell the clinician the path isn't
+    reachable) instead of the call just failing. Every attempt -- allowed
+    or denied -- is logged to the structured JSON stderr log (denials at
+    warning level with the requested path) and to this server's
+    audit_log.jsonl (REQ-006), same as every other tool here.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="read_transcript_file",
+    )
+
+    resolved = resolve_within_roots(
+        file_path, roots, logger=_logger, correlation_id=correlation_id, tool="read_transcript_file",
+    )
+    read_at = datetime.now(timezone.utc).isoformat()
+
+    if resolved is None:
+        _append_audit_entry(
+            {
+                "timestamp": read_at,
+                "action": "read_transcript_file",
+                "requested_path": file_path,
+                "outcome": "failure",
+                "error_class": "AccessDenied",
+            }
+        )
+        log_event(
+            _logger, "info", TOOL_COMPLETED, correlation_id,
+            tool="read_transcript_file", outcome="denied",
+        )
+        return TranscriptFileRead(
+            file_path=file_path,
+            denied=True,
+            transcript=None,
+            error="Access denied: this path is outside every root the client declared.",
+            read_at=read_at,
+        )
+
+    if not resolved.is_file():
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="read_transcript_file", error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No file found at the resolved path for {file_path!r}.")
+
+    size = resolved.stat().st_size
+    if size > MAX_TRANSCRIPT_FILE_BYTES:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="read_transcript_file", error_class="ValidationError",
+        )
+        raise ToolError(f"File is {size} bytes, over this tool's {MAX_TRANSCRIPT_FILE_BYTES}-byte limit.")
+
+    try:
+        text = resolved.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="read_transcript_file", error_class="ValidationError",
+        )
+        raise ToolError("File is not valid UTF-8 text.") from e
+
+    _append_audit_entry(
+        {
+            "timestamp": read_at,
+            "action": "read_transcript_file",
+            "requested_path": file_path,
+            "outcome": "success",
+        }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="read_transcript_file", outcome="success", byte_count=len(text.encode("utf-8")),
+    )
+    return TranscriptFileRead(
+        file_path=file_path,
+        denied=False,
+        transcript=text,
+        error=None,
+        read_at=read_at,
+    )
 
 
 @mcp.tool()
@@ -584,6 +793,7 @@ def edit_encounter_note(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="edit_encounter_note", note_id=note_id, reason="note_locked_after_decision",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision "
@@ -689,6 +899,7 @@ def approve_encounter_note(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="approve_encounter_note", note_id=note_id, reason="conflicting_decision",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
@@ -774,6 +985,7 @@ def reject_encounter_note(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="reject_encounter_note", note_id=note_id, reason="conflicting_decision",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"note_id={note_id!r} already has a recorded decision ({decision['action']}); "
@@ -987,6 +1199,7 @@ def approve_codes(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="approve_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"suggestion_id={suggestion_id!r} already has a recorded decision "
@@ -1074,6 +1287,7 @@ def reject_codes(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="reject_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"suggestion_id={suggestion_id!r} already has a recorded decision "
@@ -1294,6 +1508,7 @@ def address_care_gap(
         log_event(
             _logger, "warning", ACCESS_DENIED, correlation_id,
             tool="address_care_gap", gap_id=gap_id, reason="gap_already_closed",
+            error_class="AccessDenied",
         )
         raise ToolError(
             f"gap_id={gap_id!r} already has a recorded resolution; "
@@ -1326,6 +1541,203 @@ def address_care_gap(
         description=identified["description"],
         resolution=resolution,
         addressed_at=addressed_at,
+    )
+
+
+def _open_care_gaps_for_patient(patient_id: str) -> list[dict]:
+    """Every currently-open (identified but not yet addressed) care gap for
+    a patient, across every note/encounter, reconstructed by replaying the
+    audit log -- same source-of-truth pattern as _find_gap, aggregated
+    across every gap_id for this patient instead of looking up just one.
+    Plain local file I/O, no model call -- REQ pattern for
+    prioritize_care_gaps's "fetch the real data itself" requirement."""
+    if not AUDIT_LOG_PATH.exists():
+        return []
+    identified: dict[str, dict] = {}
+    addressed_ids: set[str] = set()
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("patient_id") != patient_id:
+                continue
+            if entry["action"] == "identify_care_gap":
+                identified[entry["gap_id"]] = entry
+            elif entry["action"] == "address_care_gap":
+                addressed_ids.add(entry["gap_id"])
+    return [gap for gap_id, gap in identified.items() if gap_id not in addressed_ids]
+
+
+def _extract_ranking_text(content) -> str:
+    """The client's sampled response as plain text. Sampling content can be
+    text, image, or audio (SamplingContent); this tool only ever asks a
+    text question, but a non-conformant client could still answer with a
+    non-text block, so this returns a clear fallback string rather than
+    crashing on a missing `.text` attribute -- never an empty answer."""
+    if isinstance(content, TextContent):
+        return content.text
+    return f"[client returned a non-text response ({content.type}); no ranking text available]"
+
+
+async def _list_open_gaps_resolver(patient_id: str, ctx: Context) -> CreateMessageResult | Sample | None:
+    """Resolver body for prioritize_care_gaps's `completion` parameter.
+
+    Returning None means "don't attempt sampling at all" -- the framework
+    never contacts the client in that case, only a real Sample marker
+    does. Two things short-circuit to None: no open gaps (nothing to rank)
+    and no declared sampling capability -- checking `ctx.client_capabilities`
+    here, before ever building the marker, is what keeps a client that
+    doesn't support sampling from ever seeing a MISSING_REQUIRED_CLIENT_CAPABILITY
+    protocol error: that error is only raised once a Sample marker actually
+    reaches the framework's fulfillment step, so simply never emitting one
+    avoids it entirely and lets the tool body return a normal degraded
+    result instead.
+
+    This does NOT cover every failure mode by itself. If the client DOES
+    declare sampling but then the specific request is refused or errors (a
+    human declining an approval prompt, a timeout, a malformed response),
+    that failure happens inside the framework's own fulfillment of the
+    Sample marker -- entirely after this resolver has already returned and
+    exited, so there is no code of mine positioned to catch it. It surfaces
+    as a raised MCPError, which this SDK's tool-call handler re-raises
+    rather than converting to a normal tool result (verified by reading
+    mcp/server/mcpserver/server.py's _handle_call_tool: MCPError is
+    special-cased to `raise` again, unlike ToolError/generic Exception,
+    which do get turned into an is_error tool result). That path still
+    doesn't crash the server process and doesn't return silence -- the
+    calling model sees a clear MCP-level tool-call error -- but it does
+    arrive as a protocol error rather than this tool's own
+    CareGapPriorityResult(degraded=True, ...) shape. Doing better than that
+    would mean bypassing this SDK's non-deprecated declarative sampling
+    path for the deprecated imperative one (ctx.session.create_message,
+    SEP-2577) just to get a try/except around the request -- a worse
+    trade for a rarer failure mode, so this file doesn't make it.
+    """
+    gaps = _open_care_gaps_for_patient(patient_id)
+    if not gaps:
+        return None
+    if ctx.client_capabilities is None or ctx.client_capabilities.sampling is None:
+        return None
+
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", SAMPLING_REQUEST_STARTED, correlation_id,
+        tool="prioritize_care_gaps", gap_count=len(gaps),
+    )
+    _sampling_calls[ctx.request_id] = (correlation_id, time.perf_counter())
+    await emit_progress(
+        ctx, 0, None,
+        f"Asking the client's model to prioritize {len(gaps)} open care gap(s) (single round-trip, no fixed step count)",
+    )
+
+    gap_list_text = "\n".join(f"- ({gap['gap_id']}) {gap['description']}" for gap in gaps)
+    return Sample(
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(
+                    type="text",
+                    text=f"Here are this patient's currently open care gaps, each with an opaque id:\n\n{gap_list_text}",
+                ),
+            )
+        ],
+        max_tokens=PRIORITIZE_GAPS_MAX_TOKENS,
+        system_prompt=PRIORITIZE_GAPS_SYSTEM_PROMPT,
+    )
+
+
+@mcp.tool()
+async def prioritize_care_gaps(
+    patient_id: Annotated[str, Field(min_length=1)],
+    completion: Annotated[CreateMessageResult | None, Resolve(_list_open_gaps_resolver)],
+    *,
+    ctx: Context,
+) -> CareGapPriorityResult:
+    """
+    Ask the connected client's own model to reason about which of a
+    patient's currently open care gaps (from identify_care_gaps, not yet
+    closed by address_care_gap) are most clinically urgent to act on
+    first, and why. This is judgment, not lookup -- urgency isn't stored
+    anywhere in this system, so it can't be computed by sorting a field.
+
+    This server fetches the open gaps itself, in plain Python, straight
+    from the audit log (see _open_care_gaps_for_patient) -- no model call
+    is involved in gathering that data. Only the actual prioritization
+    reasoning goes through the client via MCP sampling. This server never
+    names a model or holds an API key anywhere: sampling is answered by
+    whatever LLM the connected client has configured, entirely on the
+    client's side.
+
+    A degraded result -- never a crash, never silent emptiness -- comes
+    back with `degraded=true` and a `degraded_reason` in two cases: no
+    open gaps exist for this patient (`"no_open_care_gaps"`), or the
+    client hasn't declared MCP sampling support
+    (`"sampling_not_supported_by_client"`). See
+    _list_open_gaps_resolver's docstring for the one narrower failure mode
+    (a client that declares sampling but then refuses or errors the
+    specific request) that this tool cannot catch and convert into this
+    same graceful shape -- it surfaces as an MCP tool-call error instead,
+    which still isn't a crash or silence, just not this result type.
+
+    `ranking_text` is the model's free-text response -- a ranked list with
+    short reasons, per the system prompt -- not a decision. A clinician
+    still reviews and acts on it, same as every other AI-drafted
+    recommendation in this server.
+    """
+    gaps = _open_care_gaps_for_patient(patient_id)
+    prioritized_at = datetime.now(timezone.utc).isoformat()
+    open_gaps = [OpenCareGapSummary(gap_id=gap["gap_id"], description=gap["description"]) for gap in gaps]
+
+    if not gaps:
+        log_event(
+            _logger, "info", TOOL_COMPLETED, new_correlation_id(),
+            tool="prioritize_care_gaps", outcome="degraded", degraded_reason="no_open_care_gaps", gap_count=0,
+        )
+        return CareGapPriorityResult(
+            patient_id=patient_id,
+            gap_count=0,
+            open_gaps=[],
+            degraded=True,
+            degraded_reason="no_open_care_gaps",
+            ranking_text=None,
+            prioritized_at=prioritized_at,
+        )
+
+    if completion is None:
+        reason = (
+            "sampling_not_supported_by_client"
+            if ctx.client_capabilities is None or ctx.client_capabilities.sampling is None
+            else "sampling_unavailable"
+        )
+        log_event(
+            _logger, "warning", TOOL_COMPLETED, new_correlation_id(),
+            tool="prioritize_care_gaps", outcome="degraded", degraded_reason=reason, gap_count=len(gaps),
+        )
+        return CareGapPriorityResult(
+            patient_id=patient_id,
+            gap_count=len(gaps),
+            open_gaps=open_gaps,
+            degraded=True,
+            degraded_reason=reason,
+            ranking_text=None,
+            prioritized_at=prioritized_at,
+        )
+
+    started = _sampling_calls.pop(ctx.request_id, None)
+    correlation_id, start_time = started if started is not None else (new_correlation_id(), None)
+    duration_ms = round((time.perf_counter() - start_time) * 1000, 1) if start_time is not None else None
+    log_event(
+        _logger, "info", SAMPLING_REQUEST_FINISHED, correlation_id,
+        tool="prioritize_care_gaps", outcome="success", duration_ms=duration_ms, gap_count=len(gaps),
+    )
+    await emit_progress(ctx, 1, None, "Received the client model's prioritization")
+    return CareGapPriorityResult(
+        patient_id=patient_id,
+        gap_count=len(gaps),
+        open_gaps=open_gaps,
+        degraded=False,
+        degraded_reason=None,
+        ranking_text=_extract_ranking_text(completion.content),
+        prioritized_at=prioritized_at,
     )
 
 
@@ -1442,6 +1854,150 @@ def request_citation(
     )
 
 
+@mcp.tool()
+async def check_github_issue_status(
+    issue_number: Annotated[int, Field(ge=1)],
+    *,
+    ctx: Context,
+) -> GitHubIssueStatus:
+    """
+    Answers one question: is issue/PR #<issue_number> on this project's
+    own GitHub repo (HellenMuhonjaData/MeshMedic) currently open, and
+    what's its title? A real GitHub REST API call, not a mock -- this is
+    the one tool in this server that reads from GitHub rather than the
+    local audit log or Epic's FHIR sandbox.
+
+    `issue_number` is a strictly-typed, range-validated integer -- it can
+    never contain a "/", "..", or anything else that could redirect the
+    request to a different URL path. The request is only ever built from
+    this validated int, never from a raw string concatenated into a path;
+    see github_client.py's docstring for the same point made about its
+    one outbound call.
+
+    On a timeout, a non-2xx response, or any other failure, this returns
+    `ok=false` with a plain-English `error` -- it never raises, so one bad
+    call to GitHub can't take down this server's connection to its own
+    client. Nothing about the request (host, headers, token) ever appears
+    in that error message or in any log line this tool writes -- only the
+    issue number, outcome, and duration do.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="check_github_issue_status", issue_number=issue_number,
+    )
+    await emit_progress(
+        ctx, 0, None,
+        f"Looking up GitHub issue/PR #{issue_number} (single external call, no fixed step count)",
+    )
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        result = get_issue_or_pr(issue_number, correlation_id)
+    except httpx.TimeoutException:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="check_github_issue_status", error_class="TimeoutError",
+        )
+        _append_audit_entry(
+            {
+                "timestamp": checked_at,
+                "action": "check_github_issue_status",
+                "issue_number": issue_number,
+                "outcome": "failure",
+                "error_class": "TimeoutError",
+            }
+        )
+        return GitHubIssueStatus(
+            issue_number=issue_number, ok=False, found=None, state=None, title=None,
+            is_pull_request=None, error="Timed out contacting GitHub.", checked_at=checked_at,
+        )
+    except GitHubAPIError:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id,
+            tool="check_github_issue_status", error_class="UpstreamUnavailable",
+        )
+        _append_audit_entry(
+            {
+                "timestamp": checked_at,
+                "action": "check_github_issue_status",
+                "issue_number": issue_number,
+                "outcome": "failure",
+                "error_class": "UpstreamUnavailable",
+            }
+        )
+        return GitHubIssueStatus(
+            issue_number=issue_number, ok=False, found=None, state=None, title=None,
+            is_pull_request=None, error="GitHub's API did not return a usable response.", checked_at=checked_at,
+        )
+    except Exception:
+        # Last-resort catch: REQ-003 is "on ANY failure, return the result,
+        # never throw" -- this is the backstop for a failure mode not
+        # already named above, not the primary error path.
+        log_event(
+            _logger, "error", TOOL_ERROR, correlation_id,
+            tool="check_github_issue_status", error_class="UnexpectedError",
+        )
+        _append_audit_entry(
+            {
+                "timestamp": checked_at,
+                "action": "check_github_issue_status",
+                "issue_number": issue_number,
+                "outcome": "failure",
+                "error_class": "UnexpectedError",
+            }
+        )
+        return GitHubIssueStatus(
+            issue_number=issue_number, ok=False, found=None, state=None, title=None,
+            is_pull_request=None, error="An unexpected error occurred.", checked_at=checked_at,
+        )
+
+    if not result["found"]:
+        log_event(
+            _logger, "info", TOOL_COMPLETED, correlation_id,
+            tool="check_github_issue_status", outcome="not_found",
+        )
+        _append_audit_entry(
+            {
+                "timestamp": checked_at,
+                "action": "check_github_issue_status",
+                "issue_number": issue_number,
+                "outcome": "success",
+                "found": False,
+            }
+        )
+        return GitHubIssueStatus(
+            issue_number=issue_number, ok=True, found=False, state=None, title=None,
+            is_pull_request=None, error=None, checked_at=checked_at,
+        )
+
+    data = result["data"]
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="check_github_issue_status", outcome="success", found=True, state=data.get("state"),
+    )
+    _append_audit_entry(
+        {
+            "timestamp": checked_at,
+            "action": "check_github_issue_status",
+            "issue_number": issue_number,
+            "outcome": "success",
+            "found": True,
+            "state": data.get("state"),
+        }
+    )
+    return GitHubIssueStatus(
+        issue_number=issue_number,
+        ok=True,
+        found=True,
+        state=data.get("state"),
+        title=data.get("title"),
+        is_pull_request="pull_request" in data,
+        error=None,
+        checked_at=checked_at,
+    )
+
+
 @mcp.prompt(name="prepare-encounter-note")
 def prepare_encounter_note(
     patient_hint: str = "",
@@ -1470,4 +2026,16 @@ Handle these three situations explicitly, the way you would explain an edge case
 
 
 if __name__ == "__main__":
-    mcp.run()
+    # STDIO, single-user, single-process -- per docs/TRANSPORT_DECISION.md.
+    # This process assumes exactly one connected client for its whole
+    # lifetime (matching .mcp.json's spawn-per-session launch) and is not
+    # safe to run as multiple concurrent instances: audit_log.jsonl is a
+    # single-writer local file with no locking, and roots enforcement /
+    # MCP sampling both address "the currently connected client," which
+    # only means something with one client per process. Do not scale this
+    # by running more copies of server.py without redoing that design.
+    log_event(
+        _logger, "info", SERVER_STARTED, new_correlation_id(),
+        transport="stdio", state_model="single-user-single-process",
+    )
+    mcp.run(transport="stdio")
