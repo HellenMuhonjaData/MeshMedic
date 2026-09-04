@@ -7,6 +7,7 @@ MCP tools.
 """
 
 import json
+import uuid
 
 from epic_fhir_client import EpicFHIRError, fetch_patient
 
@@ -17,7 +18,7 @@ TEST_PATIENT_ID = "e63wRTbPfr1p8UW81d8Seiw3"
 if __name__ == "__main__":
     print(f"Fetching Patient/{TEST_PATIENT_ID} from Epic sandbox...")
     try:
-        patient = fetch_patient(TEST_PATIENT_ID)
+        patient = fetch_patient(TEST_PATIENT_ID, correlation_id=str(uuid.uuid4()))
     except EpicFHIRError as e:
         print(f"FAILED: {e}")
         raise SystemExit(1)

@@ -450,6 +450,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -462,6 +463,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.1.1" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8" },
+    { name = "python-dotenv", specifier = ">=1.0" },
 ]
 
 [package.metadata.requires-dev]

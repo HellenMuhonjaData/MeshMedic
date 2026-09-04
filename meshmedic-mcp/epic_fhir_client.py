@@ -1,17 +1,29 @@
 """Backend-service (SMART Backend Services) client for Epic's non-production
 FHIR sandbox. Handles JWT-assertion OAuth2 token exchange and Patient
 retrieval (REQ-009). Setup: an Epic app registered as "Backend Systems" with
-CLIENT_ID below, a JWKS published at the URL configured in that app pointing
-at the public half of PRIVATE_KEY_PATH's key pair, and Patient.Read/Search
-(R4) selected as Incoming APIs. See PROGRESS.md for the registration steps.
+the EPIC_CLIENT_ID below, a JWKS published at the URL configured in that app
+pointing at the public half of the EPIC_PRIVATE_KEY_PATH key pair, and
+Patient.Read/Search (R4) selected as Incoming APIs. See PROGRESS.md for the
+registration steps.
+
+Both credentials are read from the environment, not hardcoded: EPIC_CLIENT_ID
+and EPIC_PRIVATE_KEY_PATH (a path to the .pem file, not the key material
+itself). Neither has a fallback -- a missing one raises EpicFHIRError with
+just the variable name, never a value, so an operator sees exactly what to
+set without anything sensitive echoed back. load_dotenv() picks up a local
+.env file (gitignored, never committed) if one exists next to this file, so
+local dev doesn't require exporting these in the shell every session; a real
+deployment sets them as actual process environment variables instead.
 """
 
+import os
 import time
 import uuid
 from pathlib import Path
 
 import httpx
 import jwt
+from dotenv import load_dotenv
 
 from logging_utils import (
     EXTERNAL_CALL_FINISHED,
@@ -20,13 +32,12 @@ from logging_utils import (
     log_event,
 )
 
+load_dotenv(Path(__file__).parent / ".env")
 _logger = configure_json_logging()
 
 FHIR_BASE_URL = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
 TOKEN_URL = "https://fhir.epic.com/interconnect-fhir-oauth/oauth2/token"
-CLIENT_ID = "f7872397-d9b8-419c-8d08-7b2e3555d3a3"
-KID = "meshmedic-fhir-cdce91f85d6f"
-PRIVATE_KEY_PATH = Path(__file__).parent / "epic_fhir_private_key.pem"
+KID = "meshmedic-fhir-cdce91f85d6f"  # public: identifies which key in the published JWKS, not a secret
 
 REQUEST_TIMEOUT_SECONDS = 15
 MAX_ATTEMPTS = 2  # 1 retry on network-level failure; HTTP error responses fail fast, not retried
@@ -35,19 +46,28 @@ MAX_ATTEMPTS = 2  # 1 retry on network-level failure; HTTP error responses fail 
 class EpicFHIRError(Exception):
     """Raised for any failure talking to Epic's sandbox (auth or data
     retrieval). Callers get one exception type; messages never include the
-    raw response body, since it could echo back request details."""
+    raw response body, a credential value, or the private key path's
+    contents, since any of those could echo back sensitive request or
+    environment details."""
+
+
+def _require_env(var_name: str) -> str:
+    value = os.environ.get(var_name)
+    if not value:
+        raise EpicFHIRError(f"{var_name} is not set in the environment.")
+    return value
 
 
 def _build_client_assertion_jwt() -> str:
-    if not PRIVATE_KEY_PATH.exists():
-        raise EpicFHIRError(
-            f"No private key found at {PRIVATE_KEY_PATH} for Epic backend-service auth."
-        )
-    private_key = PRIVATE_KEY_PATH.read_text(encoding="utf-8")
+    client_id = _require_env("EPIC_CLIENT_ID")
+    private_key_path = Path(_require_env("EPIC_PRIVATE_KEY_PATH"))
+    if not private_key_path.exists():
+        raise EpicFHIRError("EPIC_PRIVATE_KEY_PATH does not point to an existing file.")
+    private_key = private_key_path.read_text(encoding="utf-8")
     now = int(time.time())
     claims = {
-        "iss": CLIENT_ID,
-        "sub": CLIENT_ID,
+        "iss": client_id,
+        "sub": client_id,
         "aud": TOKEN_URL,
         "jti": uuid.uuid4().hex,
         "iat": now,
@@ -75,10 +95,11 @@ def _get_access_token(correlation_id: str) -> str:
             response = httpx.post(TOKEN_URL, data=data, timeout=REQUEST_TIMEOUT_SECONDS)
         except httpx.RequestError as e:
             duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            error_class = "TimeoutError" if isinstance(e, httpx.TimeoutException) else "UpstreamUnavailable"
             log_event(
                 _logger, "warning", EXTERNAL_CALL_FINISHED, correlation_id,
                 target="epic_token_exchange", attempt=attempt,
-                duration_ms=duration_ms, outcome="failure", error_class="RequestError",
+                duration_ms=duration_ms, outcome="failure", error_class=error_class,
             )
             last_error = e
             continue
@@ -127,10 +148,11 @@ def fetch_patient(fhir_patient_id: str, correlation_id: str) -> dict | None:
             response = httpx.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         except httpx.RequestError as e:
             duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            error_class = "TimeoutError" if isinstance(e, httpx.TimeoutException) else "UpstreamUnavailable"
             log_event(
                 _logger, "warning", EXTERNAL_CALL_FINISHED, correlation_id,
                 target="epic_patient_fetch", attempt=attempt,
-                duration_ms=duration_ms, outcome="failure", error_class="RequestError",
+                duration_ms=duration_ms, outcome="failure", error_class=error_class,
             )
             last_error = e
             continue
