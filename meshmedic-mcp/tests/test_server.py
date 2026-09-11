@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -224,6 +225,100 @@ def test_approve_encounter_note_is_idempotent_for_identical_replay():
 
     assert first == second
     # Replaying the identical approval did not write a second audit entry.
+    assert len(_read_audit_entries()) == 2
+
+
+def _fixed_datetime(times):
+    """Fake stand-in for the `datetime` class server.py imports, so STORY-009
+    tests can control the elapsed time between a note's generation and its
+    review decision without a real 2-minute sleep. `now(tz)` returns the next
+    value from `times` on each call; `fromisoformat` delegates to the real
+    implementation, since _documentation_time_seconds parses stored
+    audit-trail timestamps with it."""
+    it = iter(times)
+
+    class _FakeDatetime:
+        @staticmethod
+        def now(tz=None):
+            return next(it)
+
+        @staticmethod
+        def fromisoformat(value):
+            return datetime.fromisoformat(value)
+
+    return _FakeDatetime
+
+
+def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(monkeypatch):
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=30)]))
+
+    note = _generate_note()
+    reviewed = server.approve_encounter_note(note_id=note.note_id)
+
+    assert reviewed.documentation_time_seconds == 30.0
+    assert reviewed.exceeded_target is False
+    assert reviewed.suggestions is None
+
+    entries = _read_audit_entries()
+    assert entries[1]["documentation_time_seconds"] == 30.0
+
+
+def test_approve_encounter_note_at_target_boundary_is_not_exceeded(monkeypatch):
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        server, "datetime",
+        _fixed_datetime([t0, t0 + timedelta(seconds=server.REVIEW_TIME_TARGET_SECONDS)]),
+    )
+
+    note = _generate_note()
+    reviewed = server.approve_encounter_note(note_id=note.note_id)
+
+    assert reviewed.documentation_time_seconds == server.REVIEW_TIME_TARGET_SECONDS
+    assert reviewed.exceeded_target is False
+    assert reviewed.suggestions is None
+
+
+def test_approve_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)]))
+
+    note = _generate_note()
+    reviewed = server.approve_encounter_note(note_id=note.note_id)
+
+    assert reviewed.documentation_time_seconds == 150.0
+    assert reviewed.exceeded_target is True
+    assert reviewed.suggestions == server.SPEED_UP_SUGGESTIONS
+
+    entries = _read_audit_entries()
+    assert entries[1]["documentation_time_seconds"] == 150.0
+
+
+def test_reject_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=125)]))
+
+    note = _generate_note()
+    reviewed = server.reject_encounter_note(note_id=note.note_id, feedback="Needs more detail.")
+
+    assert reviewed.documentation_time_seconds == 125.0
+    assert reviewed.exceeded_target is True
+    assert reviewed.suggestions == server.SPEED_UP_SUGGESTIONS
+
+
+def test_approve_encounter_note_idempotent_replay_reuses_stored_documentation_time(monkeypatch):
+    t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)]))
+
+    note = _generate_note()
+    first = server.approve_encounter_note(note_id=note.note_id)
+    second = server.approve_encounter_note(note_id=note.note_id)
+
+    assert first == second
+    assert second.documentation_time_seconds == 150.0
+    assert second.suggestions == server.SPEED_UP_SUGGESTIONS
+    # The no-op replay reused the stored duration (no third `now()` call
+    # queued above) and did not write a second audit entry.
     assert len(_read_audit_entries()) == 2
 
 
