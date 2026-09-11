@@ -413,21 +413,30 @@
       "criteria": [
         {
           "text": "Given a patient encounter, when the AI generates a note, then the review time is under 2 minutes.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a note review, when it exceeds 2 minutes, then the system provides suggestions to speed up the process.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log documentation time for each encounter.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time",
+        "test_approve_encounter_note_at_target_boundary_is_not_exceeded",
+        "test_approve_encounter_note_over_target_returns_speed_up_suggestions",
+        "test_reject_encounter_note_over_target_returns_speed_up_suggestions",
+        "test_approve_encounter_note_idempotent_replay_reuses_stored_documentation_time"
+      ],
+      "notes": "documentation_time_seconds (elapsed time from generate_note to the approve_note/reject_note decision, REQ-012) is computed in approve_encounter_note and reject_encounter_note, written into that decision's audit-trail entry, and returned on the response along with exceeded_target and, once the 2-minute target is exceeded, a fixed suggestions list. Idempotent replay reuses the stored duration rather than recomputing against a new 'now'.",
+      "updated_at": "2026-09-11T20:30:00Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,
