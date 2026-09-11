@@ -1322,3 +1322,162 @@ def test_github_client_releases_response_in_finally_even_on_error_status(monkeyp
         github_client.get_issue_or_pr(1, correlation_id="test-correlation")
 
     assert closed == [True]
+
+
+def test_append_audit_entry_write_failure_raises_tool_error_not_swallowed(tmp_path, monkeypatch):
+    # Point the audit log at a directory instead of a file: opening it in
+    # append mode fails with OSError on both Windows and POSIX, simulating a
+    # real write failure (disk full, permission denied) without needing a
+    # platform-specific chmod trick.
+    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path)
+
+    with pytest.raises(ToolError, match="audit trail"):
+        server.generate_encounter_note(
+            ehr_system="epic",
+            patient_id="epic-pt-10293847",
+            transcript="Patient reports mild headache for two days, no fever.",
+            note_text="Grace Whitfield presents with a two-day history of mild headache, afebrile.",
+            confidence=0.95,
+        )
+
+
+def _raw_append_audit_entry(entry: dict):
+    """Write a line straight to the isolated audit log, bypassing every tool
+    in server.py -- used only to simulate a corrupted/hand-edited audit
+    trail for the compliance-check failure-path tests below. No tool in this
+    server can produce these entries itself; that's the point."""
+    with server.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def test_run_compliance_check_all_pass_on_a_clean_normal_audit_trail():
+    note = _generate_note()
+    server.approve_encounter_note(note_id=note.note_id)
+
+    result = server.run_compliance_check()
+
+    assert result.all_passed is True
+    assert len(result.controls) == 3
+    assert all(control.passed for control in result.controls)
+    assert {c.control_id for c in result.controls} == {
+        "REQ-006-audit-completeness",
+        "REQ-014-single-decision-integrity",
+        "REQ-011-security-incident-logging",
+    }
+
+    entries = _read_audit_entries()
+    assert entries[-1]["action"] == "compliance_check"
+    assert entries[-1]["all_passed"] is True
+
+
+def test_run_compliance_check_on_empty_audit_trail_all_pass_vacuously():
+    result = server.run_compliance_check()
+
+    assert result.all_passed is True
+    assert all(control.passed for control in result.controls)
+
+
+def test_run_compliance_check_catches_an_orphaned_decision():
+    _raw_append_audit_entry(
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "action": "approve_note",
+            "note_id": "no-such-note",
+            "ehr_system": "epic",
+            "patient_id": "epic-pt-10293847",
+            "note_text": "fabricated",
+            "status": "approved",
+        }
+    )
+
+    result = server.run_compliance_check()
+
+    completeness = next(c for c in result.controls if c.control_id == "REQ-006-audit-completeness")
+    assert completeness.passed is False
+    assert "no-such-note" in completeness.detail
+    assert result.all_passed is False
+
+
+def test_run_compliance_check_catches_two_decisions_on_one_note():
+    note = _generate_note()
+    server.approve_encounter_note(note_id=note.note_id)
+    _raw_append_audit_entry(
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "action": "reject_note",
+            "note_id": note.note_id,
+            "ehr_system": note.ehr_system,
+            "patient_id": note.patient_id,
+            "note_text": note.note_text,
+            "feedback": "fabricated second decision",
+            "status": "rejected",
+        }
+    )
+
+    result = server.run_compliance_check()
+
+    integrity = next(c for c in result.controls if c.control_id == "REQ-014-single-decision-integrity")
+    assert integrity.passed is False
+    assert note.note_id in integrity.detail
+    assert result.all_passed is False
+
+
+def test_run_compliance_check_catches_an_incomplete_security_incident_record():
+    _raw_append_audit_entry(
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "action": "read_transcript_file",
+            "error_class": "AccessDenied",
+            "security_incident": True,
+            # No "outcome" field -- an incomplete security-incident record.
+        }
+    )
+
+    result = server.run_compliance_check()
+
+    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    assert logging_control.passed is False
+    assert result.all_passed is False
+
+
+def test_run_compliance_check_ignores_an_access_denied_entry_not_tagged_as_an_incident():
+    # error_class alone is no longer what this control keys off -- an
+    # AccessDenied entry without the explicit security_incident tag isn't
+    # counted at all (0 incidents observed is a legitimate pass), not
+    # flagged incomplete. Confirms the tag, not the error-class string, is
+    # now authoritative for what counts as a security incident.
+    _raw_append_audit_entry(
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "action": "some_future_tool",
+            "error_class": "AccessDenied",
+            "outcome": "failure",
+        }
+    )
+
+    result = server.run_compliance_check()
+
+    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    assert logging_control.passed is True
+    assert "0 security-incident event" in logging_control.detail
+
+
+def test_run_compliance_check_recognizes_a_real_security_incident_as_complete(tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    secret = tmp_path / "secret"
+    secret.mkdir()
+    (secret / "passwd.txt").write_text("TOP SECRET", encoding="utf-8")
+
+    traversal_path = str(allowed / ".." / "secret" / "passwd.txt")
+    denied = server.read_transcript_file(file_path=traversal_path, roots=_roots_for(allowed))
+    assert denied.denied is True
+
+    entries = _read_audit_entries()
+    assert entries[0]["security_incident"] is True
+
+    result = server.run_compliance_check()
+
+    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    assert logging_control.passed is True
+    assert "1 security-incident event" in logging_control.detail

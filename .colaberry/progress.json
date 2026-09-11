@@ -460,21 +460,33 @@
       "criteria": [
         {
           "text": "Given a compliance audit, when the system is reviewed, then it meets all relevant standards.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a security breach attempt, when the system detects it, then it prevents unauthorized access.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system must log all compliance checks and security incidents.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_server.py"
+      ],
+      "tests_added": [
+        "test_append_audit_entry_write_failure_raises_tool_error_not_swallowed",
+        "test_run_compliance_check_all_pass_on_a_clean_normal_audit_trail",
+        "test_run_compliance_check_on_empty_audit_trail_all_pass_vacuously",
+        "test_run_compliance_check_catches_an_orphaned_decision",
+        "test_run_compliance_check_catches_two_decisions_on_one_note",
+        "test_run_compliance_check_catches_an_incomplete_security_incident_record",
+        "test_run_compliance_check_ignores_an_access_denied_entry_not_tagged_as_an_incident",
+        "test_run_compliance_check_recognizes_a_real_security_incident_as_complete"
+      ],
+      "notes": "\"Meets all relevant standards\" names no specific external standard anywhere in this project's docs, so this is scoped (agreed with user) as an internal, code-checkable control checklist rather than a certification claim: run_compliance_check() replays audit_log.jsonl against 3 named controls -- audit completeness (REQ-006), single-decision integrity (REQ-014), and security-incident logging completeness (REQ-011) -- and writes its own compliance_check audit entry. \"Unauthorized access\" is scoped to this server's one real access boundary (read_transcript_file's roots guard against path traversal); its denial audit entry now carries an explicit security_incident:true tag rather than being inferred from error_class alone, so it can't be confused with unrelated AccessDenied business-rule conflicts elsewhere in the file. Third failure path (\"system fails to log incidents\"): _append_audit_entry now catches OSError, logs it with a stable AuditLogWriteFailure error_class to the structured stderr stream, and re-raises ToolError rather than letting a caller report an action as done when its audit entry was never actually written.",
+      "updated_at": "2026-09-11T21:30:00Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

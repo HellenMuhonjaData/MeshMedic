@@ -257,12 +257,49 @@ class CitationResult(BaseModel):
     requested_at: str
 
 
+class ComplianceControlResult(BaseModel):
+    control_id: str
+    description: str
+    passed: bool
+    detail: str
+
+
+class ComplianceCheckResult(BaseModel):
+    checked_at: str
+    controls: list[ComplianceControlResult]
+    all_passed: bool
+
+
 def _append_audit_entry(entry: dict) -> None:
     """Local stand-in for a real audit trail (REQ-006). Not HIPAA-grade --
     a production audit log needs its own access controls and durability
-    guarantees, which this demo file does not provide."""
-    with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    guarantees, which this demo file does not provide.
+
+    STORY-010's "system fails to log incidents" failure path: if this write
+    itself fails (disk full, permission denied, the path removed underneath
+    the process), that is never swallowed and never allowed to look like the
+    entry was written when it wasn't. Every tool in this file treats
+    audit_log.jsonl as the single source of truth (see _find_note and its
+    siblings, which reconstruct state entirely by replaying it) -- a caller
+    that returned a normal result after a failed write would silently
+    corrupt that guarantee, making REQ-006's "auditable history" a lie for
+    that action. So this logs the failure with a stable error_class to the
+    structured JSON stream (the fallback channel -- stderr, not the file
+    that just failed to write) and re-raises as ToolError, aborting the
+    calling tool rather than reporting an action that was never actually
+    recorded.
+    """
+    try:
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError as e:
+        log_event(
+            _logger, "error", TOOL_ERROR, new_correlation_id(),
+            tool="_append_audit_entry", action=entry.get("action"), error_class="AuditLogWriteFailure",
+        )
+        raise ToolError(
+            "Failed to write to the audit trail; this action was not recorded and cannot be treated as completed."
+        ) from e
 
 
 def _write_audit_entry(
@@ -559,7 +596,11 @@ def read_transcript_file(
     reachable) instead of the call just failing. Every attempt -- allowed
     or denied -- is logged to the structured JSON stderr log (denials at
     warning level with the requested path) and to this server's
-    audit_log.jsonl (REQ-006), same as every other tool here.
+    audit_log.jsonl (REQ-006), same as every other tool here. A denial's
+    audit entry additionally carries `security_incident: true` (REQ-011 /
+    STORY-010) -- this is the one real unauthorized-access boundary this
+    server enforces, so it's tagged explicitly rather than left for a
+    reviewer (or run_compliance_check) to infer from `error_class` alone.
     """
     correlation_id = new_correlation_id()
     log_event(
@@ -580,6 +621,7 @@ def read_transcript_file(
                 "requested_path": file_path,
                 "outcome": "failure",
                 "error_class": "AccessDenied",
+                "security_incident": True,
             }
         )
         log_event(
@@ -2077,6 +2119,178 @@ async def check_github_issue_status(
         error=None,
         checked_at=checked_at,
     )
+
+
+def _all_audit_entries() -> list[dict]:
+    """Every entry currently in the audit trail, oldest first. Unlike
+    _find_note/_find_suggestion/_find_gap (each keyed to one id), the
+    compliance checks below need the whole trail at once -- this is their
+    shared read, so each control does its own single pass over it rather than
+    re-opening the file per control."""
+    if not AUDIT_LOG_PATH.exists():
+        return []
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        return [json.loads(line) for line in f]
+
+
+def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
+    """REQ-006: every clinician decision in the audit trail has a matching
+    AI-drafted entry -- no decision exists whose note/suggestion/gap was
+    never actually recorded as drafted. This is already structurally
+    guaranteed by each decision tool's own _find_note/_find_suggestion/
+    _find_gap lookup (a decision can't be written for an id that lookup
+    doesn't find) -- this control re-verifies that guarantee held over the
+    real, persisted log, which is what would catch a corrupted or
+    hand-edited audit file that the code-level guarantee alone can't see."""
+    drafted: set[tuple[str, str]] = set()
+    for entry in entries:
+        if entry["action"] == "generate_note":
+            drafted.add(("note", entry["note_id"]))
+        elif entry["action"] == "suggest_codes":
+            drafted.add(("suggestion", entry["suggestion_id"]))
+        elif entry["action"] == "identify_care_gap":
+            drafted.add(("gap", entry["gap_id"]))
+
+    orphaned: list[str] = []
+    for entry in entries:
+        action = entry["action"]
+        if action in ("approve_note", "reject_note") and ("note", entry["note_id"]) not in drafted:
+            orphaned.append(f"{action} for note_id={entry['note_id']!r} has no generate_note entry")
+        elif action in ("approve_codes", "reject_codes") and ("suggestion", entry["suggestion_id"]) not in drafted:
+            orphaned.append(f"{action} for suggestion_id={entry['suggestion_id']!r} has no suggest_codes entry")
+        elif action == "address_care_gap" and ("gap", entry["gap_id"]) not in drafted:
+            orphaned.append(f"address_care_gap for gap_id={entry['gap_id']!r} has no identify_care_gap entry")
+
+    passed = not orphaned
+    return ComplianceControlResult(
+        control_id="REQ-006-audit-completeness",
+        description=(
+            "Every clinician decision (approve/reject a note or code set, address a care "
+            "gap) in the audit trail has a matching AI-drafted entry."
+        ),
+        passed=passed,
+        detail="No orphaned decisions found." if passed else "; ".join(orphaned),
+    )
+
+
+def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlResult:
+    """REQ-014: no note or code-suggestion ever accumulates more than one
+    recorded clinician decision. Same re-verification purpose as
+    _check_audit_completeness -- approve_encounter_note/reject_encounter_note
+    (and their _codes equivalents) already refuse a conflicting second
+    decision via ToolError, so this checks that guarantee actually held over
+    the persisted log rather than trusting the code path alone."""
+    note_decisions: dict[str, int] = {}
+    suggestion_decisions: dict[str, int] = {}
+    for entry in entries:
+        action = entry["action"]
+        if action in ("approve_note", "reject_note"):
+            note_decisions[entry["note_id"]] = note_decisions.get(entry["note_id"], 0) + 1
+        elif action in ("approve_codes", "reject_codes"):
+            suggestion_decisions[entry["suggestion_id"]] = suggestion_decisions.get(entry["suggestion_id"], 0) + 1
+
+    violations = [f"note_id={note_id!r} has {count} decisions" for note_id, count in note_decisions.items() if count > 1]
+    violations += [
+        f"suggestion_id={suggestion_id!r} has {count} decisions"
+        for suggestion_id, count in suggestion_decisions.items()
+        if count > 1
+    ]
+
+    passed = not violations
+    return ComplianceControlResult(
+        control_id="REQ-014-single-decision-integrity",
+        description="No note or code-suggestion set has more than one recorded clinician decision.",
+        passed=passed,
+        detail="Every note and suggestion set has at most one decision." if passed else "; ".join(violations),
+    )
+
+
+def _check_security_incident_logging(entries: list[dict]) -> ComplianceControlResult:
+    """REQ-011: every entry explicitly tagged `security_incident: true` in
+    the audit trail (currently written only by read_transcript_file's
+    roots-guard denial -- the one real unauthorized-access boundary this
+    server enforces) is a complete record: timestamp, action, outcome, and
+    error_class all present, not just a bare tag with no context a reviewer
+    could act on. Keying off this explicit tag, rather than inferring from
+    `error_class == "AccessDenied"` alone, matters because AccessDenied is
+    also used for ordinary business-rule conflicts elsewhere in this file
+    (e.g. approve_encounter_note's "already decided" case) that are not
+    security incidents -- those don't reach the audit trail today, but the
+    explicit tag keeps this control correct even if one someday does."""
+    incidents = [entry for entry in entries if entry.get("security_incident") is True]
+    incomplete = [
+        entry
+        for entry in incidents
+        if not entry.get("timestamp") or not entry.get("action") or entry.get("outcome") != "failure" or not entry.get("error_class")
+    ]
+
+    passed = not incomplete
+    if passed:
+        detail = f"{len(incidents)} security-incident event(s) in the audit trail, each fully logged."
+    else:
+        detail = f"{len(incomplete)} of {len(incidents)} security-incident event(s) are missing a required field."
+    return ComplianceControlResult(
+        control_id="REQ-011-security-incident-logging",
+        description="Every security-incident event (tagged security_incident=true) carries timestamp, action, outcome, and error_class.",
+        passed=passed,
+        detail=detail,
+    )
+
+
+@mcp.tool()
+def run_compliance_check() -> ComplianceCheckResult:
+    """
+    Evaluate this server's audit trail against a fixed, named set of internal
+    compliance controls (REQ-011 / REQ-018) and record the check itself in
+    the audit trail (REQ-006 / STORY-010's "log all compliance checks").
+
+    This does not claim certification against any external standard (HIPAA,
+    HITRUST, or otherwise) -- no such standard is named anywhere in this
+    project's requirements, and claiming one without doing the actual
+    compliance work behind it would be a false claim, not a shortcut. What it
+    does check, honestly: three controls this codebase can actually verify
+    from its own persisted audit trail -- audit completeness (REQ-006),
+    single-decision integrity (REQ-014), and security-incident logging
+    completeness (REQ-011). A "compliance audit" against this tool means
+    reviewing these three named controls and their pass/fail detail, not an
+    opaque yes/no.
+
+    Every control is checked from `audit_log.jsonl` as it actually is, never
+    assumed to pass because the code that writes it looks correct -- a
+    control failing here means the persisted data disagrees with what the
+    code guarantees (a real regression, or a hand-edited/corrupted log), and
+    is reported as such rather than hidden. `all_passed` is only true if
+    every control passed; a partial pass is reported in full, not rounded up.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id,
+        tool="run_compliance_check",
+    )
+
+    entries = _all_audit_entries()
+    controls = [
+        _check_audit_completeness(entries),
+        _check_single_decision_integrity(entries),
+        _check_security_incident_logging(entries),
+    ]
+    all_passed = all(control.passed for control in controls)
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    _append_audit_entry(
+        {
+            "timestamp": checked_at,
+            "action": "compliance_check",
+            "all_passed": all_passed,
+            "controls": [control.model_dump() for control in controls],
+        }
+    )
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id,
+        tool="run_compliance_check", outcome="success", all_passed=all_passed,
+    )
+
+    return ComplianceCheckResult(checked_at=checked_at, controls=controls, all_passed=all_passed)
 
 
 @mcp.prompt(name="prepare-encounter-note")
