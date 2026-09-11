@@ -1,3 +1,4 @@
+import ast
 import json
 import re
 import time
@@ -2237,6 +2238,60 @@ def _check_security_incident_logging(entries: list[dict]) -> ComplianceControlRe
     )
 
 
+# Keyword argument names log_event(...) must never carry (REQ-011): raw
+# patient identity, free-text clinical content, or anything else
+# logging_utils.log_event's own contract calls out as forbidden --
+# "identifiers, counts, and durations only... never... a raw patient record
+# (name, DOB, MRN, note/transcript text)". Opaque ids already logged
+# throughout this file today (note_id, patient_id, suggestion_id, gap_id,
+# ehr_system) are deliberately NOT in this set -- REQ-011 forbids raw PHI
+# content, not the identifiers this codebase already treats as safe to log.
+FORBIDDEN_LOG_CONTEXT_KEYS = frozenset({
+    "transcript", "note_text", "edited_note_text",
+    "first_name", "last_name", "date_of_birth", "mrn", "patient_name",
+    "feedback", "confidence_reason", "claimed_excerpt", "matched_text",
+    "resolution", "description", "ranking_text",
+})
+
+
+def _log_event_violations(source: str) -> list[str]:
+    """Static scan: every log_event(...) call site in `source`, checked for
+    a keyword argument name in FORBIDDEN_LOG_CONTEXT_KEYS. Returns one
+    human-readable violation string per bad call site (empty if none).
+    AST-based, not a text/regex search, so a forbidden name appearing only
+    as a string *value* elsewhere (e.g. tool="note_text") or in a comment
+    can't produce a false positive -- only an actual keyword-argument name
+    at an actual log_event(...) call site counts."""
+    tree = ast.parse(source)
+    violations = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "log_event"):
+            continue
+        for kw in node.keywords:
+            if kw.arg in FORBIDDEN_LOG_CONTEXT_KEYS:
+                violations.append(f"log_event(...) at line {node.lineno} passes forbidden key {kw.arg!r}")
+    return violations
+
+
+def _check_no_phi_in_structured_logs() -> ComplianceControlResult:
+    """REQ-011: no log_event(...) call site in this server's own source
+    passes a keyword argument that could carry raw PHI to the structured
+    stderr stream -- the one log channel in this system that is NOT
+    supposed to carry it (unlike audit_log.jsonl, which legitimately does,
+    by design, as REQ-006's source of truth). Unlike this file's other three
+    controls, this one is static (checks source code, not audit_log.jsonl)
+    -- it catches a violation the moment it's written, before it ever logs a
+    single real byte of PHI, rather than after the fact."""
+    violations = _log_event_violations(Path(__file__).read_text(encoding="utf-8"))
+    passed = not violations
+    return ComplianceControlResult(
+        control_id="REQ-011-no-phi-in-structured-logs",
+        description="No log_event(...) call site passes a keyword argument that could carry raw PHI.",
+        passed=passed,
+        detail="No forbidden keys found in any log_event(...) call." if passed else "; ".join(violations),
+    )
+
+
 @mcp.tool()
 def run_compliance_check() -> ComplianceCheckResult:
     """
@@ -2248,19 +2303,21 @@ def run_compliance_check() -> ComplianceCheckResult:
     HITRUST, or otherwise) -- no such standard is named anywhere in this
     project's requirements, and claiming one without doing the actual
     compliance work behind it would be a false claim, not a shortcut. What it
-    does check, honestly: three controls this codebase can actually verify
-    from its own persisted audit trail -- audit completeness (REQ-006),
-    single-decision integrity (REQ-014), and security-incident logging
-    completeness (REQ-011). A "compliance audit" against this tool means
-    reviewing these three named controls and their pass/fail detail, not an
-    opaque yes/no.
+    does check, honestly: four controls this codebase can actually verify --
+    audit completeness (REQ-006), single-decision integrity (REQ-014),
+    security-incident logging completeness (REQ-011), and no PHI reaching
+    the structured stderr log stream (REQ-011). A "compliance audit" against
+    this tool means reviewing these four named controls and their pass/fail
+    detail, not an opaque yes/no.
 
-    Every control is checked from `audit_log.jsonl` as it actually is, never
-    assumed to pass because the code that writes it looks correct -- a
-    control failing here means the persisted data disagrees with what the
+    Three controls are checked from `audit_log.jsonl` as it actually is,
+    never assumed to pass because the code that writes it looks correct --
+    a control failing here means the persisted data disagrees with what the
     code guarantees (a real regression, or a hand-edited/corrupted log), and
-    is reported as such rather than hidden. `all_passed` is only true if
-    every control passed; a partial pass is reported in full, not rounded up.
+    is reported as such rather than hidden. The fourth (no-PHI-in-logs) is a
+    static check of this file's own source instead, since there's nothing
+    to replay for "what wasn't logged." `all_passed` is only true if every
+    control passed; a partial pass is reported in full, not rounded up.
     """
     correlation_id = new_correlation_id()
     log_event(
@@ -2273,6 +2330,7 @@ def run_compliance_check() -> ComplianceCheckResult:
         _check_audit_completeness(entries),
         _check_single_decision_integrity(entries),
         _check_security_incident_logging(entries),
+        _check_no_phi_in_structured_logs(),
     ]
     all_passed = all(control.passed for control in controls)
     checked_at = datetime.now(timezone.utc).isoformat()

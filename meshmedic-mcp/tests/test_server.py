@@ -1350,6 +1350,51 @@ def _raw_append_audit_entry(entry: dict):
         f.write(json.dumps(entry) + "\n")
 
 
+def test_log_event_violations_detects_a_forbidden_key_in_a_synthetic_snippet():
+    snippet = 'log_event(_logger, "info", TOOL_STARTED, correlation_id, tool="x", note_text="secret")'
+
+    violations = server._log_event_violations(snippet)
+
+    assert len(violations) == 1
+    assert "note_text" in violations[0]
+    assert "line 1" in violations[0]
+
+
+def test_log_event_violations_finds_every_bad_call_site_not_just_the_first():
+    snippet = (
+        'log_event(_logger, "info", TOOL_STARTED, correlation_id, transcript="a")\n'
+        'log_event(_logger, "info", TOOL_STARTED, correlation_id, tool="ok")\n'
+        'log_event(_logger, "info", TOOL_STARTED, correlation_id, feedback="b")\n'
+    )
+
+    violations = server._log_event_violations(snippet)
+
+    assert len(violations) == 2
+    assert any("transcript" in v for v in violations)
+    assert any("feedback" in v for v in violations)
+
+
+def test_log_event_violations_is_not_fooled_by_a_forbidden_name_as_a_value_or_in_a_comment():
+    # "note_text" and "mrn" appear here, but never as a log_event keyword
+    # name -- an AST-based check must not flag either.
+    snippet = (
+        '# do not log note_text or mrn here\n'
+        'log_event(_logger, "info", TOOL_STARTED, correlation_id, tool="note_text", reason="mrn")\n'
+    )
+
+    violations = server._log_event_violations(snippet)
+
+    assert violations == []
+
+
+def test_run_compliance_check_includes_a_passing_no_phi_in_logs_control_on_the_real_file():
+    result = server.run_compliance_check()
+
+    phi_control = next(c for c in result.controls if c.control_id == "REQ-011-no-phi-in-structured-logs")
+    assert phi_control.passed is True
+    assert phi_control.detail == "No forbidden keys found in any log_event(...) call."
+
+
 def test_run_compliance_check_all_pass_on_a_clean_normal_audit_trail():
     note = _generate_note()
     server.approve_encounter_note(note_id=note.note_id)
@@ -1357,12 +1402,13 @@ def test_run_compliance_check_all_pass_on_a_clean_normal_audit_trail():
     result = server.run_compliance_check()
 
     assert result.all_passed is True
-    assert len(result.controls) == 3
+    assert len(result.controls) == 4
     assert all(control.passed for control in result.controls)
     assert {c.control_id for c in result.controls} == {
         "REQ-006-audit-completeness",
         "REQ-014-single-decision-integrity",
         "REQ-011-security-incident-logging",
+        "REQ-011-no-phi-in-structured-logs",
     }
 
     entries = _read_audit_entries()
