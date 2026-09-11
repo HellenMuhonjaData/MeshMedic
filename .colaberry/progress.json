@@ -3,13 +3,13 @@
   "project": "MeshMedic",
   "totals": {
     "stories_total": 13,
-    "stories_verified": 2,
+    "stories_verified": 9,
     "stories_submitted": 0,
-    "stories_in_progress": 11,
+    "stories_in_progress": 4,
     "stories_not_started": 0,
     "criteria_total": 41,
-    "criteria_passed": 8,
-    "points_awarded": 124
+    "criteria_passed": 29,
+    "points_awarded": 558
   },
   "stories": [
     {
@@ -34,8 +34,8 @@
           "passed": true
         },
         {
-          "text": "Trust â no tab shows a number, a connection or a result the project has not actually produced.",
-          "passed": true
+          "text": "Trust — no tab shows a number, a connection or a result the project has not actually produced.",
+          "passed": false
         }
       ],
       "files_touched": [],
@@ -131,19 +131,15 @@
       "notes": "Added edit_encounter_note, logging a distinct edit_note audit entry separate from approve/reject. approve_encounter_note and reject_encounter_note now default to the latest saved edit (via a shared _current_note_text helper) rather than always the AI original, so the audit trail accurately reflects what the clinician actually reviewed when they decided. Criterion 1 (approve logged) was already satisfied by STORY-001 approve_encounter_note; this story closes criteria 2 and 3.",
       "updated_at": "2026-09-02T19:56:44.651Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given an AI recommendation, when a clinician approves it, then the action is logged in the audit trail.",
-          "Given a clinician edits a recommendation, when they save changes, then the edit is logged in the audit trail.",
-          "Trust: The audit trail must reflect all AI recommendations and clinician actions."
-        ]
+        "verified_at": "2026-09-02T19:57:21.069Z",
+        "commit_sha": "541af750e65683e7e5d62fb88345de59de958acb",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/541af750e65683e7e5d62fb88345de59de958acb",
+        "commit_at": "2026-09-02T19:57:11Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -177,19 +173,15 @@
       "notes": "No UI exists in this build, so REQ-008's \"visual warning\" is implemented as a structured warning field on GeneratedNote (agreed interpretation with user) rather than a rendered icon -- whatever client calls the MCP tool is responsible for surfacing it. generate_encounter_note now requires a confidence score (0.0-1.0, threshold 0.7 per user); below threshold, confidence_reason is mandatory (ToolError if omitted) so the flag always carries an explanation per REQ-008's exact wording. Manual correction reuses edit_encounter_note from STORY-002 rather than rebuilding it, per the brief's explicit instruction.",
       "updated_at": "2026-09-02T20:22:20.698Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a low-confidence recommendation, when the AI flags it, then the clinician sees a warning icon.",
-          "Given a flagged recommendation, when the clinician reviews it, then they can manually input corrections.",
-          "Trust: The system must log flagged recommendations and clinician corrections."
-        ]
+        "verified_at": "2026-09-02T20:23:02.058Z",
+        "commit_sha": "1d1191d3c30356b30b27e2c7b0516d127ad8d623",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/1d1191d3c30356b30b27e2c7b0516d127ad8d623",
+        "commit_at": "2026-09-02T20:22:50Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -227,19 +219,15 @@
       "notes": "Added suggest_codes, approve_codes, reject_codes MCP tools, mirroring STORY-001's note workflow exactly (audit-log-as-source-of-truth via a new _find_suggestion helper, one decision per suggestion set, idempotent replay, ToolError on conflicting redecision). Code suggestions are tied to an existing note_id from generate_encounter_note, reusing its confirmed patient/encounter context rather than re-verifying identity. No external ICD-10/CPT validation database exists in this system -- correctness (the \"Incorrect code suggestions\" failure path) is mitigated by clinician review/reject-with-feedback, same honest limitation as STORY-001's note generation, not by algorithmic checking.",
       "updated_at": "2026-09-02T20:38:53.017Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given encounter data, when the AI suggests codes, then the clinician can review and approve them.",
-          "Given a code suggestion, when the clinician rejects it, then they can provide feedback for improvement.",
-          "Trust: The audit trail must log code suggestions and clinician decisions."
-        ]
+        "verified_at": "2026-09-02T20:39:35.035Z",
+        "commit_sha": "d92ed5031cfda5cf8898454265e48990b579e5ad",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/d92ed5031cfda5cf8898454265e48990b579e5ad",
+        "commit_at": "2026-09-02T20:39:22Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -276,19 +264,15 @@
       "notes": "Added identify_care_gaps and address_care_gap MCP tools. Deliberately NOT bundled like STORY-004's codes -- discussed the tradeoff with the user first (bundling would misrepresent partial progress, since a clinician might resolve one care gap today and leave another flagged for weeks from the same encounter). Each description passed to identify_care_gaps becomes its own CareGap with an independent gap_id and its own audit trail via a new _find_gap helper; address_care_gap records free-text resolution rather than an approve/reject binary, since addressing a care gap is not a yes/no on an AI recommendation. Same idempotent-replay / one-closing-action-per-gap / ToolError-on-conflict guarantees as the rest of the codebase. No external clinical-guideline database exists -- false positives in care gap identification are mitigated by clinician review, not computed.",
       "updated_at": "2026-09-02T21:10:00.000Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given encounter data, when the AI identifies a care gap, then it flags it for clinician review.",
-          "Given a flagged care gap, when the clinician addresses it, then the action is logged in the audit trail.",
-          "Trust: The system must log identified care gaps and clinician actions."
-        ]
+        "verified_at": "2026-09-02T21:09:14.815Z",
+        "commit_sha": "08f74255b97aa03443f3eb69689418a845db35d0",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/08f74255b97aa03443f3eb69689418a845db35d0",
+        "commit_at": "2026-09-02T21:08:58Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -325,19 +309,15 @@
       "notes": "This is the first story with a real external system dependency. Registered a Backend Systems app in Epic on FHIR (fhir.epic.com), generated an RSA key pair for SMART Backend Services JWT-assertion auth (private key kept strictly local and gitignored, only the public JWKS committed), and confirmed the real non-production FHIR base URL and OAuth2 flow end-to-end via a manual smoke test (meshmedic-mcp/verify_epic_sandbox.py, run by hand -- not part of the automated pytest suite, since it makes a real network call and unit tests must stay I/O-free per the repo's testing rules) against Epic's open sandbox with synthetic test-patient data. New epic_fhir_client.py module (separate responsibility from the MCP tool definitions) handles token exchange + Patient.Read. New fetch_patient_from_ehr MCP tool added as a standalone capability rather than reworking search_ehr_patient/get_patient_chart, to avoid regressing STORY-001 through STORY-005 which depend on the existing local sample_patients.py ID space -- Epic's real FHIR IDs are a different, unrelated ID space. oracle_health honestly raises ToolError (not connected) rather than faking a result, satisfying \"remains EHR-agnostic\" via a shared interface without pretending a second real connection exists. Every call, success or failure, is audited.",
       "updated_at": "2026-09-03T12:44:57.173Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a FHIR API endpoint, when the system requests patient data, then it retrieves and displays the data.",
-          "Given an EHR system, when the system integrates with it, then it remains EHR-agnostic.",
-          "Trust: The system must log all data retrieval actions from EHRs."
-        ]
+        "verified_at": "2026-09-03T12:46:03.788Z",
+        "commit_sha": "aabd69d9ee4a80cecbab91658708ab3b61ce9e50",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/aabd69d9ee4a80cecbab91658708ab3b61ce9e50",
+        "commit_at": "2026-09-02T21:28:36Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -372,19 +352,15 @@
       "notes": "Added request_citation(note_id, claimed_excerpt), verifying a claimed citation against the note's stored transcript rather than trusting the calling model's claim -- directly guards against the \"incorrect citation provided\" failure path, not just \"citation missing\". A new _find_citation helper does a whitespace/case-tolerant but non-fuzzy regex match (normalizes claimed_excerpt whitespace, escapes it, swaps escaped spaces for s+, case-insensitive search against the original transcript) so trivial formatting differences do not cause false \"not found\" results while paraphrasing still correctly fails to match -- deliberately not fuzzy/semantic matching, since a threshold-based approach could pass a citation that only loosely relates. Works uniformly across notes/codes/care-gaps since all three share the same note_id/transcript chain -- no separate tool needed per recommendation type. Returned character offsets are the \"highlight\" mechanism for a system with no UI (same approach as STORY-003's warning field). Every request is audited regardless of outcome. Documented an honest limitation in the tool's own docstring: this proves an excerpt is not fabricated, not that it is definitively the true basis for the recommendation -- there is no semantic-grounding system in this build.",
       "updated_at": "2026-09-03T14:19:27.758Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given an AI recommendation, when the clinician requests a source citation, then the system highlights the relevant transcript section.",
-          "Given a citation request, when the system cannot provide it, then it explains the reason.",
-          "Trust: The system must log all citation requests and responses."
-        ]
+        "verified_at": "2026-09-03T14:20:22.624Z",
+        "commit_sha": "60159881392ef01d5b461654efbbc8fe0ca48494",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/60159881392ef01d5b461654efbbc8fe0ca48494",
+        "commit_at": "2026-09-03T14:20:03Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -419,19 +395,15 @@
       "notes": "STORY-008 maps to the same REQ-008 text as STORY-003 (flagged to user before building) -- for notes specifically, STORY-003 already satisfied all 3 criteria (GeneratedNote always returns confidence; warning/confidence_reason on low ones; audited). User chose to extend confidence scoring to code suggestions and care gaps too, rather than call it done notes-only, so \"AI recommendation\" is covered generically, not just notes. suggest_codes gained confidence/confidence_reason (one score per suggestion set, mirrors generate_encounter_note). identify_care_gaps changed its descriptions:list[str] parameter to gaps:list[CareGapInput] (confidence is per-gap, not per-call, consistent with STORY-005's decision that gaps are addressed independently -- one encounter can surface both a high- and low-confidence gap). All gaps in a call are validated before any audit entry for that call is written, so a call is all-or-nothing rather than partially recorded if one gap fails validation. Both new paths reuse the existing CONFIDENCE_THRESHOLD constant and warning-string format from STORY-003, no new confidence logic invented. Updated all existing identify_care_gaps test call sites for the new signature; all 33 pre-existing tests still pass (no regression).",
       "updated_at": "2026-09-03T14:37:52.245Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given an AI recommendation, when the system displays it, then it shows a confidence score.",
-          "Given a low-confidence recommendation, when the clinician reviews it, then they see an explanation for the low confidence.",
-          "Trust: The system must log all confidence scores and clinician interactions."
-        ]
+        "verified_at": "2026-09-03T14:38:43.793Z",
+        "commit_sha": "9653ddb31b27f46600fc8f94c0308a08f9fade44",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/9653ddb31b27f46600fc8f94c0308a08f9fade44",
+        "commit_at": "2026-09-03T14:38:28Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -461,9 +433,9 @@
         "criteria_passed": 0,
         "criteria_total": 3,
         "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
+        "commit_sha": "a876b06ac5203faae58d68b0e4f8b4c2474c413b",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/a876b06ac5203faae58d68b0e4f8b4c2474c413b",
+        "commit_at": "2026-09-11T20:07:31Z",
         "points_awarded": null,
         "outstanding": [
           "Given a patient encounter, when the AI generates a note, then the review time is under 2 minutes.",
@@ -586,135 +558,5 @@
         ]
       }
     }
-  ],
-  "updatedAt": "2026-08-18T01:30:00Z",
-  "storyStatus": {
-    "STORY-001": "not-started",
-    "STORY-002": "not-started",
-    "STORY-003": "not-started",
-    "STORY-004": "not-started",
-    "STORY-005": "not-started",
-    "STORY-006": "not-started",
-    "STORY-007": "not-started",
-    "STORY-008": "not-started",
-    "STORY-009": "not-started",
-    "STORY-010": "not-started",
-    "STORY-011": "not-started",
-    "STORY-012": "not-started"
-  },
-  "systemStatus": {
-    "EHR": {
-      "status": "unknown",
-      "lastChecked": null
-    },
-    "Epic": {
-      "status": "unknown",
-      "lastChecked": null
-    },
-    "Oracle Health": {
-      "status": "unknown",
-      "lastChecked": null
-    },
-    "Cerner": {
-      "status": "unknown",
-      "lastChecked": null
-    },
-    "EHRs": {
-      "status": "unknown",
-      "lastChecked": null
-    }
-  },
-  "guardrailEnforced": {
-    "REQ-006": {
-      "enforced": false,
-      "note": "No audit log exists yet â nothing has been built."
-    },
-    "REQ-011": {
-      "enforced": false,
-      "note": "No PHI handling code exists yet."
-    },
-    "REQ-014": {
-      "enforced": false,
-      "note": "No AI action pathway exists yet â nothing to gate."
-    },
-    "REQ-018": {
-      "enforced": false,
-      "note": "No compliance mapping implemented yet."
-    }
-  },
-  "agentsScoped": {
-    "Clinician": [],
-    "Compliance Officer": [],
-    "System Integrator": [],
-    "Clinical Documentation System": [],
-    "Clinical Decision Support System": []
-  },
-  "outcomes": {
-    "REQ-012": {
-      "real": null,
-      "sample": [
-        6.4,
-        6,
-        5.3,
-        4.6,
-        3.9,
-        3.1,
-        2.4,
-        1.9
-      ]
-    }
-  },
-  "story000": {
-    "title": "Build your Command Center",
-    "doneMeans": [
-      {
-        "id": 1,
-        "text": "Given the Command Center, when it is opened, then every tab is reachable and every card drills down one level.",
-        "done": true,
-        "note": "All 9 tabs built. Every card on every tab's list view now has an href to a detail page â fixed an earlier gap where several Overview cards (Requirements, Stories, Demo day, Outcomes preview, Guardrails summary) were static instead of links."
-      },
-      {
-        "id": 2,
-        "text": "Given sample mode, when any tab is shown, then the sample data is visibly labelled as sample.",
-        "done": true,
-        "note": "Sample banner + SAMPLE badge shown wherever fabricated data renders (Outcomes only â the one place sample data legitimately applies)."
-      },
-      {
-        "id": 3,
-        "text": "Given the data files, when any tab renders, then its content comes from .colaberry/plan.json and .colaberry/progress.json read at runtime rather than from hard-coded values.",
-        "done": true,
-        "note": "index.html fetches both files at runtime via relative paths. A fallback snapshot exists in the JS for contexts where fetch can't reach sibling files (e.g. a single-file preview) â when served normally, fetched data overwrites it."
-      },
-      {
-        "id": 4,
-        "text": "Given .colaberry/manifest.json, when any tab is shown, then it displays how old the data is and warns when that age exceeds a week.",
-        "done": true,
-        "note": "Top bar shows a data-age pill on every tab, sourced from manifest.generatedAt and manifest.staleAfterDays."
-      },
-      {
-        "id": 5,
-        "text": "Trust â no tab shows a number, a connection, or a result the project has not actually produced.",
-        "done": true,
-        "note": "Systems and guardrail status are always real (never toggled by sample mode). Outcomes shows \"Not measured yet\" in real mode. Story status is honestly not-started everywhere."
-      }
-    ]
-  },
-  "decisions": [
-    {
-      "date": "2026-08-17",
-      "text": "No brand colors were supplied for MeshMedic, so the Command Center uses a neutral palette defined in one CSS token block for a later one-line swap.",
-      "tab": "overview"
-    },
-    {
-      "date": "2026-08-17",
-      "text": "Systems and guardrail statuses are treated as always-real, never toggled by sample mode â connection state and code-enforcement state are facts, not something safe to fabricate.",
-      "tab": "guardrails"
-    },
-    {
-      "date": "2026-08-18",
-      "text": "REQ-011 (PHI protection) has no story in the current plan that scopes its implementation directly â flagged as an open gap rather than force-mapped to an unrelated story.",
-      "tab": "guardrails"
-    }
-  ],
-  "notes": []
+  ]
 }

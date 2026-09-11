@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "disclosure": "private",
+  "headline": null,
+  "summary": null,
+  "challenge": null,
+  "highlight_story_ids": [],
+  "links": {
+    "repo": "https://github.com/HellenMuhonjaData/MeshMedic",
+    "command_center": null
+  },
+  "include": {
+    "requirement_statements": false,
+    "measures": false,
+    "systems": false,
+    "narrative": false
+  }
+}
