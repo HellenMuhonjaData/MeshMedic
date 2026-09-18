@@ -539,9 +539,25 @@ function saveActiveSession() {
   session.lastActivity = Date.now();
 }
 
+function resetSearchBoxes(ehrSystem) {
+  // The search boxes' only job is finding a NEW patient -- once a patient
+  // is active, leftover text here from whoever was searched last (possibly
+  // a different patient) reads as stale/wrong data sitting next to a now-
+  // different active patient, even though nothing was actually broken by
+  // it. Clearing them on every switch keeps this panel honest about who is
+  // active: the chip list and the Active patient/note strip, not this box.
+  document.getElementById('mrn').value = '';
+  document.getElementById('lastName').value = '';
+  document.getElementById('dob').value = '';
+  if (ehrSystem) document.getElementById('ehrSystem').value = ehrSystem;
+  document.getElementById('matchList').innerHTML = '';
+  document.getElementById('patientResult').style.display = 'none';
+}
+
 function loadSession(key) {
   const session = sessions.get(key);
   applyFormFields(session);
+  resetSearchBoxes(session.ehrSystem);
   state.patientId = session.patientId;
   state.ehrSystem = session.ehrSystem;
   state.noteId = session.noteId;
@@ -568,6 +584,7 @@ function closeSession(key) {
   if (activeSessionKey === key) {
     activeSessionKey = null;
     applyFormFields(blankFormFields());
+    resetSearchBoxes();
     state.patientId = null;
     state.noteId = null;
     state.suggestionId = null;
@@ -632,11 +649,11 @@ function selectPatient(match, ehrSystem) {
   }
 
   activeSessionKey = patientId;
+  // loadSession() -> resetSearchBoxes() already clears #matchList, so there
+  // is nothing left there to highlight -- the "Open encounters" chip list
+  // (renderSessionTabs) is what shows which patient is active now.
   loadSession(patientId);
   renderSessionTabs();
-
-  const rows = document.querySelectorAll('#matchList .match-row');
-  rows.forEach(r => r.classList.toggle('active', r.textContent.includes(patientId)));
 }
 
 let mediaRecorder = null;
