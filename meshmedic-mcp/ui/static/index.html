@@ -159,6 +159,18 @@
   }
   #patientPanel .match-row:hover { border-color: var(--accent); background: var(--accent-soft); }
   #patientPanel .match-row.active { border-color: var(--accent); background: var(--accent-soft); }
+  #sessionTabs { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+  .session-chip {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px;
+    background: var(--paper);
+  }
+  .session-chip:hover { border-color: var(--accent); }
+  .session-chip.active { border-color: var(--accent); background: var(--accent-soft); }
+  .session-chip .chip-label { font-weight: 600; flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-chip .chip-status { color: var(--ink-soft); font-size: 11px; cursor: pointer; }
+  .session-chip .chip-close { background: transparent; border: none; color: var(--ink-soft); cursor: pointer; padding: 0 2px; margin: 0; font-size: 15px; line-height: 1; }
+  .session-chip .chip-close:hover { color: var(--bad); }
   #log h2 { font-size: 13px; margin: 0 0 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; }
   .log-entry { border-left: 3px solid var(--line); padding: 6px 0 6px 10px; margin-bottom: 8px; font-size: 12px; }
   .log-entry.ok { border-color: var(--good); }
@@ -196,6 +208,9 @@
     <button class="ghost" onclick="prefillSample()">Fill sample encounter</button>
     <div id="patientResult" class="result" style="display:none"></div>
     <div id="matchList"></div>
+    <h2 style="margin-top:18px">Open encounters</h2>
+    <p class="hint" style="margin-top:0">Switch between patients without losing either one's draft — each keeps its own transcript, note, and codes/gaps/orders separately.</p>
+    <div id="sessionTabs"></div>
     <div class="active-strip">
       <div class="row-line"><span class="label">Active patient</span><span class="id-pill" id="activePatient">none</span></div>
       <div class="row-line"><span class="label">Active note</span><span class="id-pill" id="activeNoteMini">none</span></div>
@@ -219,8 +234,9 @@
           <input type="file" id="audioFileInput" accept="audio/*" onchange="handleAudioFileUpload(this)" />
         </div>
       </div>
-      <p class="small" id="transcribeStatus" style="margin:0 0 8px;">Record live from the mic, or upload a pre-recorded clip — both transcribe via Whisper into the box below.</p>
+      <p class="small" id="transcribeStatus" style="margin:0 0 8px;">Record live from the mic, or upload a pre-recorded clip. Recording again appends to what's already here (e.g. resuming after a patient's lab visit) — click Clear before starting a genuinely different patient or encounter.</p>
       <textarea id="transcript" placeholder="Paste or type the encounter transcript…"></textarea>
+      <button type="button" class="ghost" onclick="clearTranscript()" style="margin-top:6px;">Clear transcript</button>
       <div class="row">
         <div>
           <label>Draft note text</label>
@@ -333,7 +349,16 @@
 </div>
 
 <script>
-const state = { patientId: null, ehrSystem: 'epic', noteId: null, suggestionId: null, gaps: [] };
+// `state` always mirrors whichever encounter is active -- generateNote(),
+// suggestCodes(), etc. read/write it exactly as before. What's new is
+// `sessions`: one full snapshot of the form (transcript, draft note, codes,
+// gaps, orders...) per patient, so switching patients can never leak one
+// patient's text into another's -- there's no shared field left to leak
+// into. saveActiveSession()/loadSession() move data between `state`+the DOM
+// and a session snapshot; every other function is unchanged.
+const state = { patientId: null, ehrSystem: 'epic', noteId: null, suggestionId: null };
+const sessions = new Map(); // patient_id -> session snapshot
+let activeSessionKey = null; // patient_id of the active session, or null before any patient is selected
 
 function logEntry(tool, ok, payload) {
   const wrap = document.getElementById('logEntries');
@@ -402,11 +427,23 @@ async function searchPatient() {
   if (dob) args.date_of_birth = dob;
   try {
     const data = await callTool('search_ehr_patient', args);
+    const matches = Array.isArray(data.matches || data.patients || data) ? (data.matches || data.patients || data) : [];
+    renderMatches(matches, args.ehr_system);
+    if (matches.length === 0) {
+      // Loud and red on purpose: a silent "found nobody" here looks
+      // identical to "the search did nothing" -- seen for real when a
+      // search under the wrong ehr_system (e.g. epic instead of
+      // oracle_health for a patient only registered there) quietly
+      // returned zero matches and the previous patient's session just sat
+      // on screen unchanged, which read as a bug rather than a non-match.
+      showResult(
+        'patientResult', false,
+        `No match found in "${args.ehr_system}" for that search. If you expected a result, check the EHR system dropdown above -- not every patient is under "epic".`
+      );
+      return;
+    }
     showResult('patientResult', true, data);
-    const matches = data.matches || data.patients || (Array.isArray(data) ? data : []);
-    const first = Array.isArray(matches) ? matches[0] : null;
-    renderMatches(Array.isArray(matches) ? matches : [], args.ehr_system);
-    if (Array.isArray(matches) && matches.length === 1) {
+    if (matches.length === 1) {
       selectPatient(matches[0], args.ehr_system);
     }
   } catch (e) {
@@ -426,12 +463,180 @@ function renderMatches(matches, ehrSystem) {
   });
 }
 
+function blankFormFields() {
+  return {
+    transcript: '', noteText: '', confidence: '0.9', confidenceReason: '', editedNoteText: '',
+    noteDecisionVisible: false,
+    codeValue: '', codeSystem: 'icd-10', codeDesc: '', codeConfidence: '0.9', codeConfidenceReason: '',
+    codesDecisionVisible: false,
+    gapDesc: '', gapConfidence: '0.9', gapConfidenceReason: '',
+    orderTestName: '', orderReason: '',
+    claimedExcerpt: '',
+  };
+}
+
+function captureFormFields() {
+  return {
+    transcript: document.getElementById('transcript').value,
+    noteText: document.getElementById('noteText').value,
+    confidence: document.getElementById('confidence').value,
+    confidenceReason: document.getElementById('confidenceReason').value,
+    editedNoteText: document.getElementById('editedNoteText').value,
+    noteDecisionVisible: document.getElementById('noteDecision').style.display !== 'none',
+    codeValue: document.getElementById('codeValue').value,
+    codeSystem: document.getElementById('codeSystem').value,
+    codeDesc: document.getElementById('codeDesc').value,
+    codeConfidence: document.getElementById('codeConfidence').value,
+    codeConfidenceReason: document.getElementById('codeConfidenceReason').value,
+    codesDecisionVisible: document.getElementById('codesDecision').style.display !== 'none',
+    gapDesc: document.getElementById('gapDesc').value,
+    gapConfidence: document.getElementById('gapConfidence').value,
+    gapConfidenceReason: document.getElementById('gapConfidenceReason').value,
+    orderTestName: document.getElementById('orderTestName').value,
+    orderReason: document.getElementById('orderReason').value,
+    claimedExcerpt: document.getElementById('claimedExcerpt').value,
+  };
+}
+
+function applyFormFields(f) {
+  document.getElementById('transcript').value = f.transcript || '';
+  document.getElementById('noteText').value = f.noteText || '';
+  document.getElementById('confidence').value = f.confidence || '0.9';
+  document.getElementById('confidenceReason').value = f.confidenceReason || '';
+  document.getElementById('editedNoteText').value = f.editedNoteText || '';
+  document.getElementById('noteDecision').style.display = f.noteDecisionVisible ? 'block' : 'none';
+  document.getElementById('codeValue').value = f.codeValue || '';
+  document.getElementById('codeSystem').value = f.codeSystem || 'icd-10';
+  document.getElementById('codeDesc').value = f.codeDesc || '';
+  document.getElementById('codeConfidence').value = f.codeConfidence || '0.9';
+  document.getElementById('codeConfidenceReason').value = f.codeConfidenceReason || '';
+  document.getElementById('codesDecision').style.display = f.codesDecisionVisible ? 'block' : 'none';
+  document.getElementById('gapDesc').value = f.gapDesc || '';
+  document.getElementById('gapConfidence').value = f.gapConfidence || '0.9';
+  document.getElementById('gapConfidenceReason').value = f.gapConfidenceReason || '';
+  document.getElementById('orderTestName').value = f.orderTestName || '';
+  document.getElementById('orderReason').value = f.orderReason || '';
+  document.getElementById('claimedExcerpt').value = f.claimedExcerpt || '';
+  // Stale result panels from a different encounter would otherwise still be
+  // showing on screen after a switch, which reads as belonging to whoever
+  // is now active -- clear them all on every switch.
+  ['patientResult', 'noteResult', 'decisionResult', 'codesResult', 'codesDecisionResult',
+   'gapsResult', 'orderResult', 'pendingItemsResult', 'citationResult', 'ehrResult', 'complianceResult']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  document.getElementById('draftStatus').textContent = '';
+  document.getElementById('transcribeStatus').textContent =
+    'Record live from the mic, or upload a pre-recorded clip. Recording again appends to what\'s already here.';
+}
+
+function saveActiveSession() {
+  if (!activeSessionKey) return;
+  const session = sessions.get(activeSessionKey);
+  if (!session) return;
+  Object.assign(session, captureFormFields());
+  session.noteId = state.noteId;
+  session.suggestionId = state.suggestionId;
+  session.ehrSystem = state.ehrSystem;
+  session.lastActivity = Date.now();
+}
+
+function loadSession(key) {
+  const session = sessions.get(key);
+  applyFormFields(session);
+  state.patientId = session.patientId;
+  state.ehrSystem = session.ehrSystem;
+  state.noteId = session.noteId;
+  state.suggestionId = session.suggestionId;
+  document.getElementById('activePatient').textContent = session.patientId || 'none';
+  document.getElementById('activeNote').textContent = session.noteId || 'none';
+  document.getElementById('activeNoteMini').textContent = session.noteId || 'none';
+  document.getElementById('gapsList').innerHTML = '';
+  (session.gaps || []).forEach(g => addGapRow(g, false));
+  document.getElementById('ordersList').innerHTML = '';
+  (session.orders || []).forEach(o => addOrderRow(o, false));
+}
+
+function switchToSession(key) {
+  if (key === activeSessionKey) return;
+  saveActiveSession();
+  activeSessionKey = key;
+  loadSession(key);
+  renderSessionTabs();
+}
+
+function closeSession(key) {
+  sessions.delete(key);
+  if (activeSessionKey === key) {
+    activeSessionKey = null;
+    applyFormFields(blankFormFields());
+    state.patientId = null;
+    state.noteId = null;
+    state.suggestionId = null;
+    document.getElementById('activePatient').textContent = 'none';
+    document.getElementById('activeNote').textContent = 'none';
+    document.getElementById('activeNoteMini').textContent = 'none';
+    document.getElementById('gapsList').innerHTML = '';
+    document.getElementById('ordersList').innerHTML = '';
+  }
+  renderSessionTabs();
+}
+
+function renderSessionTabs() {
+  const wrap = document.getElementById('sessionTabs');
+  if (sessions.size === 0) {
+    wrap.innerHTML = '<p class="small" style="margin:0">None yet — search a patient to start one.</p>';
+    return;
+  }
+  wrap.innerHTML = '';
+  sessions.forEach((session, key) => {
+    const chip = document.createElement('div');
+    chip.className = 'session-chip' + (key === activeSessionKey ? ' active' : '');
+    const bits = [];
+    if (session.noteId) bits.push('note drafted');
+    else if ((session.transcript || '').trim()) bits.push('transcript only');
+    else bits.push('new');
+    chip.innerHTML = `
+      <span class="chip-label">${escapeHtml(session.label || key)}</span>
+      <span class="chip-status">${escapeHtml(bits.join(' · '))}</span>
+      <button type="button" class="chip-close" title="Close this encounter">×</button>
+    `;
+    chip.querySelector('.chip-label').onclick = () => switchToSession(key);
+    chip.querySelector('.chip-status').onclick = () => switchToSession(key);
+    chip.querySelector('.chip-close').onclick = (e) => { e.stopPropagation(); closeSession(key); };
+    wrap.appendChild(chip);
+  });
+}
+
 function selectPatient(match, ehrSystem) {
-  state.patientId = match.patient_id;
-  state.ehrSystem = ehrSystem;
-  document.getElementById('activePatient').textContent = state.patientId;
+  const patientId = match.patient_id;
+  const isNewSession = !sessions.has(patientId);
+  const wasScratch = activeSessionKey === null; // no encounter active yet at all -- current form is just scratch, safe to adopt
+
+  saveActiveSession();
+
+  const label = `${match.first_name || ''} ${match.last_name || ''}`.trim() || patientId;
+  if (isNewSession) {
+    // A brand-new patient always starts blank UNLESS nothing was active
+    // before (fresh page, or prefillSample() was used before searching) --
+    // that scratch content becomes this patient's seed. Never seed a new
+    // patient from another patient's still-active fields.
+    const seed = wasScratch ? captureFormFields() : blankFormFields();
+    sessions.set(patientId, {
+      patientId, ehrSystem, label,
+      noteId: null, suggestionId: null, gaps: [], orders: [],
+      ...seed,
+    });
+  } else {
+    const existing = sessions.get(patientId);
+    existing.label = label;
+    existing.ehrSystem = ehrSystem;
+  }
+
+  activeSessionKey = patientId;
+  loadSession(patientId);
+  renderSessionTabs();
+
   const rows = document.querySelectorAll('#matchList .match-row');
-  rows.forEach(r => r.classList.toggle('active', r.textContent.includes(match.patient_id)));
+  rows.forEach(r => r.classList.toggle('active', r.textContent.includes(patientId)));
 }
 
 let mediaRecorder = null;
@@ -523,7 +728,16 @@ function handleAudioFileUpload(input) {
   if (file) transcribeAudio(file, file.name);
 }
 
+function clearTranscript() {
+  document.getElementById('transcript').value = '';
+  document.getElementById('transcribeStatus').textContent = 'Transcript cleared — ready for a new recording.';
+}
+
 async function transcribeAudio(blobOrFile, filename) {
+  // No cross-patient guard needed here anymore -- each patient has their
+  // own session (see selectPatient/switchToSession), so this textarea only
+  // ever holds the active session's own transcript. Appending onto it can
+  // no longer mix in a different patient's conversation.
   const status = document.getElementById('transcribeStatus');
   status.textContent = 'Transcribing…';
   const fd = new FormData();
@@ -536,8 +750,14 @@ async function transcribeAudio(blobOrFile, filename) {
       status.textContent = data.error || 'Transcription failed.';
       return;
     }
-    document.getElementById('transcript').value = data.transcript;
-    status.textContent = 'Transcribed — review the text below before drafting a note.';
+    const box = document.getElementById('transcript');
+    const existing = box.value.trim();
+    box.value = existing
+      ? `${existing}\n\n[Recording resumed ${new Date().toLocaleString()}]\n${data.transcript}`
+      : data.transcript;
+    status.textContent = existing
+      ? 'Transcribed — appended to the existing transcript below. Review before drafting a note.'
+      : 'Transcribed — review the text below before drafting a note.';
   } catch (e) {
     status.textContent = e.message;
   }
@@ -671,7 +891,11 @@ async function identifyGaps() {
   }
 }
 
-function addGapRow(gap) {
+function addGapRow(gap, track = true) {
+  if (track && activeSessionKey) {
+    const session = sessions.get(activeSessionKey);
+    if (session) session.gaps = [...(session.gaps || []), gap];
+  }
   const list = document.getElementById('gapsList');
   const row = document.createElement('div');
   row.className = 'gap-row';
@@ -713,7 +937,11 @@ async function orderTest() {
   }
 }
 
-function addOrderRow(order) {
+function addOrderRow(order, track = true) {
+  if (track && activeSessionKey) {
+    const session = sessions.get(activeSessionKey);
+    if (session) session.orders = [...(session.orders || []), order];
+  }
   const list = document.getElementById('ordersList');
   const row = document.createElement('div');
   row.className = 'gap-row';
@@ -782,6 +1010,7 @@ async function runCompliance() {
 }
 
 checkConnection();
+renderSessionTabs();
 </script>
 </body>
 </html>
