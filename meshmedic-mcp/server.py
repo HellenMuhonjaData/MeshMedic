@@ -226,6 +226,38 @@ class CareGapPriorityResult(BaseModel):
     prioritized_at: str
 
 
+class TestOrder(BaseModel):
+    order_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["pending"]
+    test_name: str
+    reason: str
+    ordered_at: str
+
+
+class ResultedTestOrder(BaseModel):
+    order_id: str
+    note_id: str
+    patient_id: str
+    ehr_system: str
+    status: Literal["resulted"]
+    test_name: str
+    reason: str
+    result_text: str
+    ordered_at: str
+    resulted_at: str
+
+
+class PendingItemsSummary(BaseModel):
+    patient_id: str
+    open_care_gaps: list[OpenCareGapSummary]
+    pending_orders: list[TestOrder]
+    resulted_orders: list[ResultedTestOrder]
+    checked_at: str
+
+
 class GitHubIssueStatus(BaseModel):
     issue_number: int
     ok: bool
@@ -295,8 +327,13 @@ def _append_audit_entry(entry: dict) -> None:
             f.write(json.dumps(entry) + "\n")
     except OSError as e:
         log_event(
-            _logger, "error", TOOL_ERROR, new_correlation_id(),
-            tool="_append_audit_entry", action=entry.get("action"), error_class="AuditLogWriteFailure",
+            _logger,
+            "error",
+            TOOL_ERROR,
+            new_correlation_id(),
+            tool="_append_audit_entry",
+            action=entry.get("action"),
+            error_class="AuditLogWriteFailure",
         )
         raise ToolError(
             "Failed to write to the audit trail; this action was not recorded and cannot be treated as completed."
@@ -346,9 +383,15 @@ async def search_ehr_patient(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="search_ehr_patient", ehr_system=ehr_system,
-        search_key="mrn" if mrn else ("last_name+date_of_birth" if last_name else "none"),
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="search_ehr_patient",
+        ehr_system=ehr_system,
+        search_key="mrn"
+        if mrn
+        else ("last_name+date_of_birth" if last_name else "none"),
     )
     have_mrn = bool(mrn)
     have_name_dob = bool(last_name) and bool(date_of_birth)
@@ -356,8 +399,13 @@ async def search_ehr_patient(
     if not have_mrn and not have_name_dob:
         _write_audit_entry(ehr_system, mrn, last_name, date_of_birth, 0)
         log_event(
-            _logger, "info", TOOL_COMPLETED, correlation_id,
-            tool="search_ehr_patient", outcome="success", match_count=0,
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool="search_ehr_patient",
+            outcome="success",
+            match_count=0,
         )
         return SearchResult(
             matches=[],
@@ -374,20 +422,31 @@ async def search_ehr_patient(
     found = []
     for position, candidate in enumerate(candidates, start=1):
         await emit_progress(
-            ctx, position, total, f"Checking candidate {position} of {total} (MRN {candidate['mrn']})"
+            ctx,
+            position,
+            total,
+            f"Checking candidate {position} of {total} (MRN {candidate['mrn']})",
         )
         if have_mrn:
             if candidate["mrn"].lower() == mrn.lower():
                 found.append(candidate)
-        elif candidate["last_name"].lower() == last_name.lower() and candidate["date_of_birth"] == date_of_birth:
+        elif (
+            candidate["last_name"].lower() == last_name.lower()
+            and candidate["date_of_birth"] == date_of_birth
+        ):
             found.append(candidate)
 
     _write_audit_entry(ehr_system, mrn, last_name, date_of_birth, len(found))
 
     if not found:
         log_event(
-            _logger, "info", TOOL_COMPLETED, correlation_id,
-            tool="search_ehr_patient", outcome="success", match_count=0,
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool="search_ehr_patient",
+            outcome="success",
+            match_count=0,
         )
         return SearchResult(
             matches=[],
@@ -397,8 +456,13 @@ async def search_ehr_patient(
 
     trimmed = found[:max_results]
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="search_ehr_patient", outcome="success", match_count=len(trimmed),
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="search_ehr_patient",
+        outcome="success",
+        match_count=len(trimmed),
     )
     return SearchResult(
         matches=[PatientMatch(**p) for p in trimmed],
@@ -476,8 +540,12 @@ async def fetch_patient_from_ehr(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="fetch_patient_from_ehr",
+        ehr_system=ehr_system,
     )
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -493,9 +561,14 @@ async def fetch_patient_from_ehr(
             }
         )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
-            reason="ehr_system_not_connected", error_class="AccessDenied",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="fetch_patient_from_ehr",
+            ehr_system=ehr_system,
+            reason="ehr_system_not_connected",
+            error_class="AccessDenied",
         )
         raise ToolError(
             "oracle_health has no real FHIR sandbox connected in this build -- "
@@ -503,7 +576,9 @@ async def fetch_patient_from_ehr(
         )
 
     await emit_progress(
-        ctx, 0, None,
+        ctx,
+        0,
+        None,
         f"Contacting {ehr_system}'s FHIR sandbox for patient {fhir_patient_id} (token exchange + fetch, no fixed step count)",
     )
     try:
@@ -520,8 +595,12 @@ async def fetch_patient_from_ehr(
             }
         )
         log_event(
-            _logger, "error", TOOL_ERROR, correlation_id,
-            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+            _logger,
+            "error",
+            TOOL_ERROR,
+            correlation_id,
+            tool="fetch_patient_from_ehr",
+            ehr_system=ehr_system,
             error_class="UpstreamUnavailable",
         )
         raise ToolError(f"Could not retrieve patient from Epic: {e}") from e
@@ -538,8 +617,12 @@ async def fetch_patient_from_ehr(
             }
         )
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="fetch_patient_from_ehr", ehr_system=ehr_system,
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="fetch_patient_from_ehr",
+            ehr_system=ehr_system,
             error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(
@@ -556,8 +639,13 @@ async def fetch_patient_from_ehr(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="fetch_patient_from_ehr", ehr_system=ehr_system, outcome="success",
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="fetch_patient_from_ehr",
+        ehr_system=ehr_system,
+        outcome="success",
     )
     return patient
 
@@ -605,12 +693,19 @@ def read_transcript_file(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
         tool="read_transcript_file",
     )
 
     resolved = resolve_within_roots(
-        file_path, roots, logger=_logger, correlation_id=correlation_id, tool="read_transcript_file",
+        file_path,
+        roots,
+        logger=_logger,
+        correlation_id=correlation_id,
+        tool="read_transcript_file",
     )
     read_at = datetime.now(timezone.utc).isoformat()
 
@@ -626,8 +721,12 @@ def read_transcript_file(
             }
         )
         log_event(
-            _logger, "info", TOOL_COMPLETED, correlation_id,
-            tool="read_transcript_file", outcome="denied",
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool="read_transcript_file",
+            outcome="denied",
         )
         return TranscriptFileRead(
             file_path=file_path,
@@ -639,25 +738,41 @@ def read_transcript_file(
 
     if not resolved.is_file():
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="read_transcript_file", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="read_transcript_file",
+            error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No file found at the resolved path for {file_path!r}.")
+        raise ResourceNotFoundError(
+            f"No file found at the resolved path for {file_path!r}."
+        )
 
     size = resolved.stat().st_size
     if size > MAX_TRANSCRIPT_FILE_BYTES:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="read_transcript_file", error_class="ValidationError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="read_transcript_file",
+            error_class="ValidationError",
         )
-        raise ToolError(f"File is {size} bytes, over this tool's {MAX_TRANSCRIPT_FILE_BYTES}-byte limit.")
+        raise ToolError(
+            f"File is {size} bytes, over this tool's {MAX_TRANSCRIPT_FILE_BYTES}-byte limit."
+        )
 
     try:
         text = resolved.read_text(encoding="utf-8")
     except UnicodeDecodeError as e:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="read_transcript_file", error_class="ValidationError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="read_transcript_file",
+            error_class="ValidationError",
         )
         raise ToolError("File is not valid UTF-8 text.") from e
 
@@ -670,8 +785,13 @@ def read_transcript_file(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="read_transcript_file", outcome="success", byte_count=len(text.encode("utf-8")),
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="read_transcript_file",
+        outcome="success",
+        byte_count=len(text.encode("utf-8")),
     )
     return TranscriptFileRead(
         file_path=file_path,
@@ -719,14 +839,23 @@ def generate_encounter_note(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="generate_encounter_note", ehr_system=ehr_system, patient_id=patient_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="generate_encounter_note",
+        ehr_system=ehr_system,
+        patient_id=patient_id,
     )
 
     if _find_patient(ehr_system, patient_id) is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="generate_encounter_note", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="generate_encounter_note",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(
             f"No patient found for patient_id={patient_id!r} in ehr_system={ehr_system!r}; "
@@ -736,8 +865,12 @@ def generate_encounter_note(
     flagged = confidence < CONFIDENCE_THRESHOLD
     if flagged and not confidence_reason:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="generate_encounter_note", error_class="ValidationError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="generate_encounter_note",
+            error_class="ValidationError",
         )
         raise ToolError(
             f"confidence={confidence!r} is below the low-confidence threshold "
@@ -747,7 +880,9 @@ def generate_encounter_note(
 
     note_id = str(uuid.uuid4())
     generated_at = datetime.now(timezone.utc).isoformat()
-    warning = f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
+    warning = (
+        f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
+    )
 
     _append_audit_entry(
         {
@@ -765,8 +900,14 @@ def generate_encounter_note(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="generate_encounter_note", outcome="success", note_id=note_id, flagged=flagged,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="generate_encounter_note",
+        outcome="success",
+        note_id=note_id,
+        flagged=flagged,
     )
 
     return GeneratedNote(
@@ -859,22 +1000,35 @@ def edit_encounter_note(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="edit_encounter_note", note_id=note_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="edit_encounter_note",
+        note_id=note_id,
     )
 
     record = _find_note(note_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="edit_encounter_note", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="edit_encounter_note",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
     if record["decision"] is not None:
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="edit_encounter_note", note_id=note_id, reason="note_locked_after_decision",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="edit_encounter_note",
+            note_id=note_id,
+            reason="note_locked_after_decision",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -886,8 +1040,14 @@ def edit_encounter_note(
     current_entry = record["latest_edit"] or generated
     if current_entry["note_text"] == edited_note_text:
         log_event(
-            _logger, "info", TOOL_COMPLETED, correlation_id,
-            tool="edit_encounter_note", note_id=note_id, outcome="success", no_op=True,
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool="edit_encounter_note",
+            note_id=note_id,
+            outcome="success",
+            no_op=True,
         )
         return EditedNote(
             note_id=note_id,
@@ -911,8 +1071,14 @@ def edit_encounter_note(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="edit_encounter_note", note_id=note_id, outcome="success", no_op=False,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="edit_encounter_note",
+        note_id=note_id,
+        outcome="success",
+        no_op=False,
     )
     return EditedNote(
         note_id=note_id,
@@ -953,31 +1119,49 @@ def approve_encounter_note(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="approve_encounter_note", note_id=note_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="approve_encounter_note",
+        note_id=note_id,
     )
 
     record = _find_note(note_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="approve_encounter_note", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="approve_encounter_note",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
     generated = record["generated"]
     decision = record["decision"]
-    final_text = edited_note_text if edited_note_text is not None else _current_note_text(record)
+    final_text = (
+        edited_note_text if edited_note_text is not None else _current_note_text(record)
+    )
 
     if decision is not None:
         if decision["action"] == "approve_note" and decision["note_text"] == final_text:
             documentation_time_seconds = decision.get(
                 "documentation_time_seconds",
-                _documentation_time_seconds(generated["timestamp"], decision["timestamp"]),
+                _documentation_time_seconds(
+                    generated["timestamp"], decision["timestamp"]
+                ),
             )
             log_event(
-                _logger, "info", TOOL_COMPLETED, correlation_id,
-                tool="approve_encounter_note", note_id=note_id, outcome="success", no_op=True,
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="approve_encounter_note",
+                note_id=note_id,
+                outcome="success",
+                no_op=True,
                 documentation_time_seconds=documentation_time_seconds,
             )
             return ReviewedNote(
@@ -993,8 +1177,13 @@ def approve_encounter_note(
                 suggestions=_speed_up_suggestions(documentation_time_seconds),
             )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="approve_encounter_note", note_id=note_id, reason="conflicting_decision",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="approve_encounter_note",
+            note_id=note_id,
+            reason="conflicting_decision",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -1003,7 +1192,9 @@ def approve_encounter_note(
         )
 
     reviewed_at = datetime.now(timezone.utc).isoformat()
-    documentation_time_seconds = _documentation_time_seconds(generated["timestamp"], reviewed_at)
+    documentation_time_seconds = _documentation_time_seconds(
+        generated["timestamp"], reviewed_at
+    )
     exceeded_target = documentation_time_seconds > REVIEW_TIME_TARGET_SECONDS
     suggestions = _speed_up_suggestions(documentation_time_seconds)
     _append_audit_entry(
@@ -1019,9 +1210,16 @@ def approve_encounter_note(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="approve_encounter_note", note_id=note_id, outcome="success", no_op=False,
-        documentation_time_seconds=documentation_time_seconds, exceeded_target=exceeded_target,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="approve_encounter_note",
+        note_id=note_id,
+        outcome="success",
+        no_op=False,
+        documentation_time_seconds=documentation_time_seconds,
+        exceeded_target=exceeded_target,
     )
     return ReviewedNote(
         note_id=note_id,
@@ -1059,15 +1257,23 @@ def reject_encounter_note(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="reject_encounter_note", note_id=note_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="reject_encounter_note",
+        note_id=note_id,
     )
 
     record = _find_note(note_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="reject_encounter_note", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="reject_encounter_note",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(f"No generated note found for note_id={note_id!r}.")
 
@@ -1079,11 +1285,19 @@ def reject_encounter_note(
         if decision["action"] == "reject_note" and decision.get("feedback") == feedback:
             documentation_time_seconds = decision.get(
                 "documentation_time_seconds",
-                _documentation_time_seconds(generated["timestamp"], decision["timestamp"]),
+                _documentation_time_seconds(
+                    generated["timestamp"], decision["timestamp"]
+                ),
             )
             log_event(
-                _logger, "info", TOOL_COMPLETED, correlation_id,
-                tool="reject_encounter_note", note_id=note_id, outcome="success", no_op=True,
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="reject_encounter_note",
+                note_id=note_id,
+                outcome="success",
+                no_op=True,
                 documentation_time_seconds=documentation_time_seconds,
             )
             return ReviewedNote(
@@ -1099,8 +1313,13 @@ def reject_encounter_note(
                 suggestions=_speed_up_suggestions(documentation_time_seconds),
             )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="reject_encounter_note", note_id=note_id, reason="conflicting_decision",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="reject_encounter_note",
+            note_id=note_id,
+            reason="conflicting_decision",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -1109,7 +1328,9 @@ def reject_encounter_note(
         )
 
     reviewed_at = datetime.now(timezone.utc).isoformat()
-    documentation_time_seconds = _documentation_time_seconds(generated["timestamp"], reviewed_at)
+    documentation_time_seconds = _documentation_time_seconds(
+        generated["timestamp"], reviewed_at
+    )
     exceeded_target = documentation_time_seconds > REVIEW_TIME_TARGET_SECONDS
     suggestions = _speed_up_suggestions(documentation_time_seconds)
     _append_audit_entry(
@@ -1126,9 +1347,16 @@ def reject_encounter_note(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="reject_encounter_note", note_id=note_id, outcome="success", no_op=False,
-        documentation_time_seconds=documentation_time_seconds, exceeded_target=exceeded_target,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="reject_encounter_note",
+        note_id=note_id,
+        outcome="success",
+        no_op=False,
+        documentation_time_seconds=documentation_time_seconds,
+        exceeded_target=exceeded_target,
     )
     return ReviewedNote(
         note_id=note_id,
@@ -1197,15 +1425,24 @@ def suggest_codes(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="suggest_codes", note_id=note_id, code_count=len(codes),
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="suggest_codes",
+        note_id=note_id,
+        code_count=len(codes),
     )
 
     note_record = _find_note(note_id)
     if note_record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="suggest_codes", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="suggest_codes",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
@@ -1215,8 +1452,12 @@ def suggest_codes(
     flagged = confidence < CONFIDENCE_THRESHOLD
     if flagged and not confidence_reason:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="suggest_codes", error_class="ValidationError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="suggest_codes",
+            error_class="ValidationError",
         )
         raise ToolError(
             f"confidence={confidence!r} is below the low-confidence threshold "
@@ -1227,7 +1468,9 @@ def suggest_codes(
     generated = note_record["generated"]
     suggestion_id = str(uuid.uuid4())
     suggested_at = datetime.now(timezone.utc).isoformat()
-    warning = f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
+    warning = (
+        f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
+    )
 
     _append_audit_entry(
         {
@@ -1245,9 +1488,15 @@ def suggest_codes(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="suggest_codes", outcome="success", suggestion_id=suggestion_id,
-        code_count=len(codes), flagged=flagged,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="suggest_codes",
+        outcome="success",
+        suggestion_id=suggestion_id,
+        code_count=len(codes),
+        flagged=flagged,
     )
 
     return SuggestedCodes(
@@ -1287,28 +1536,51 @@ def approve_codes(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="approve_codes", suggestion_id=suggestion_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="approve_codes",
+        suggestion_id=suggestion_id,
     )
 
     record = _find_suggestion(suggestion_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="approve_codes", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="approve_codes",
+            error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
+        raise ResourceNotFoundError(
+            f"No code suggestion found for suggestion_id={suggestion_id!r}."
+        )
 
     suggested = record["suggested"]
     decision = record["decision"]
-    final_codes = edited_codes if edited_codes is not None else [CodeSuggestion(**c) for c in suggested["codes"]]
+    final_codes = (
+        edited_codes
+        if edited_codes is not None
+        else [CodeSuggestion(**c) for c in suggested["codes"]]
+    )
     final_codes_dump = [c.model_dump() for c in final_codes]
 
     if decision is not None:
-        if decision["action"] == "approve_codes" and decision["codes"] == final_codes_dump:
+        if (
+            decision["action"] == "approve_codes"
+            and decision["codes"] == final_codes_dump
+        ):
             log_event(
-                _logger, "info", TOOL_COMPLETED, correlation_id,
-                tool="approve_codes", suggestion_id=suggestion_id, outcome="success", no_op=True,
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="approve_codes",
+                suggestion_id=suggestion_id,
+                outcome="success",
+                no_op=True,
             )
             return ReviewedCodes(
                 suggestion_id=suggestion_id,
@@ -1321,8 +1593,13 @@ def approve_codes(
                 reviewed_at=decision["timestamp"],
             )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="approve_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="approve_codes",
+            suggestion_id=suggestion_id,
+            reason="conflicting_decision",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -1344,8 +1621,14 @@ def approve_codes(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="approve_codes", suggestion_id=suggestion_id, outcome="success", no_op=False,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="approve_codes",
+        suggestion_id=suggestion_id,
+        outcome="success",
+        no_op=False,
     )
     return ReviewedCodes(
         suggestion_id=suggestion_id,
@@ -1377,26 +1660,45 @@ def reject_codes(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="reject_codes", suggestion_id=suggestion_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="reject_codes",
+        suggestion_id=suggestion_id,
     )
 
     record = _find_suggestion(suggestion_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="reject_codes", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="reject_codes",
+            error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No code suggestion found for suggestion_id={suggestion_id!r}.")
+        raise ResourceNotFoundError(
+            f"No code suggestion found for suggestion_id={suggestion_id!r}."
+        )
 
     suggested = record["suggested"]
     decision = record["decision"]
 
     if decision is not None:
-        if decision["action"] == "reject_codes" and decision.get("feedback") == feedback:
+        if (
+            decision["action"] == "reject_codes"
+            and decision.get("feedback") == feedback
+        ):
             log_event(
-                _logger, "info", TOOL_COMPLETED, correlation_id,
-                tool="reject_codes", suggestion_id=suggestion_id, outcome="success", no_op=True,
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="reject_codes",
+                suggestion_id=suggestion_id,
+                outcome="success",
+                no_op=True,
             )
             return ReviewedCodes(
                 suggestion_id=suggestion_id,
@@ -1409,8 +1711,13 @@ def reject_codes(
                 reviewed_at=decision["timestamp"],
             )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="reject_codes", suggestion_id=suggestion_id, reason="conflicting_decision",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="reject_codes",
+            suggestion_id=suggestion_id,
+            reason="conflicting_decision",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -1434,8 +1741,14 @@ def reject_codes(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="reject_codes", suggestion_id=suggestion_id, outcome="success", no_op=False,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="reject_codes",
+        suggestion_id=suggestion_id,
+        outcome="success",
+        no_op=False,
     )
     return ReviewedCodes(
         suggestion_id=suggestion_id,
@@ -1504,15 +1817,24 @@ def identify_care_gaps(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="identify_care_gaps", note_id=note_id, gap_count=len(gaps),
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="identify_care_gaps",
+        note_id=note_id,
+        gap_count=len(gaps),
     )
 
     note_record = _find_note(note_id)
     if note_record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="identify_care_gaps", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="identify_care_gaps",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
@@ -1520,10 +1842,17 @@ def identify_care_gaps(
         )
 
     for gap_input in gaps:
-        if gap_input.confidence < CONFIDENCE_THRESHOLD and not gap_input.confidence_reason:
+        if (
+            gap_input.confidence < CONFIDENCE_THRESHOLD
+            and not gap_input.confidence_reason
+        ):
             log_event(
-                _logger, "warning", TOOL_ERROR, correlation_id,
-                tool="identify_care_gaps", error_class="ValidationError",
+                _logger,
+                "warning",
+                TOOL_ERROR,
+                correlation_id,
+                tool="identify_care_gaps",
+                error_class="ValidationError",
             )
             raise ToolError(
                 f"confidence={gap_input.confidence!r} for {gap_input.description!r} is below "
@@ -1537,7 +1866,11 @@ def identify_care_gaps(
     for gap_input in gaps:
         gap_id = str(uuid.uuid4())
         flagged = gap_input.confidence < CONFIDENCE_THRESHOLD
-        warning = f"Low confidence ({gap_input.confidence:.2f}): {gap_input.confidence_reason}" if flagged else None
+        warning = (
+            f"Low confidence ({gap_input.confidence:.2f}): {gap_input.confidence_reason}"
+            if flagged
+            else None
+        )
         _append_audit_entry(
             {
                 "timestamp": identified_at,
@@ -1568,8 +1901,14 @@ def identify_care_gaps(
             )
         )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="identify_care_gaps", note_id=note_id, outcome="success", gap_count=len(results),
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="identify_care_gaps",
+        note_id=note_id,
+        outcome="success",
+        gap_count=len(results),
     )
     return results
 
@@ -1598,15 +1937,23 @@ def address_care_gap(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="address_care_gap", gap_id=gap_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="address_care_gap",
+        gap_id=gap_id,
     )
 
     record = _find_gap(gap_id)
     if record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="address_care_gap", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="address_care_gap",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(f"No care gap found for gap_id={gap_id!r}.")
 
@@ -1616,8 +1963,14 @@ def address_care_gap(
     if addressed is not None:
         if addressed["resolution"] == resolution:
             log_event(
-                _logger, "info", TOOL_COMPLETED, correlation_id,
-                tool="address_care_gap", gap_id=gap_id, outcome="success", no_op=True,
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="address_care_gap",
+                gap_id=gap_id,
+                outcome="success",
+                no_op=True,
             )
             return AddressedCareGap(
                 gap_id=gap_id,
@@ -1630,8 +1983,13 @@ def address_care_gap(
                 addressed_at=addressed["timestamp"],
             )
         log_event(
-            _logger, "warning", ACCESS_DENIED, correlation_id,
-            tool="address_care_gap", gap_id=gap_id, reason="gap_already_closed",
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="address_care_gap",
+            gap_id=gap_id,
+            reason="gap_already_closed",
             error_class="AccessDenied",
         )
         raise ToolError(
@@ -1653,8 +2011,14 @@ def address_care_gap(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="address_care_gap", gap_id=gap_id, outcome="success", no_op=False,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="address_care_gap",
+        gap_id=gap_id,
+        outcome="success",
+        no_op=False,
     )
     return AddressedCareGap(
         gap_id=gap_id,
@@ -1702,7 +2066,9 @@ def _extract_ranking_text(content) -> str:
     return f"[client returned a non-text response ({content.type}); no ranking text available]"
 
 
-async def _list_open_gaps_resolver(patient_id: str, ctx: Context) -> CreateMessageResult | Sample | None:
+async def _list_open_gaps_resolver(
+    patient_id: str, ctx: Context
+) -> CreateMessageResult | Sample | None:
     """Resolver body for prioritize_care_gaps's `completion` parameter.
 
     Returning None means "don't attempt sampling at all" -- the framework
@@ -1744,16 +2110,24 @@ async def _list_open_gaps_resolver(patient_id: str, ctx: Context) -> CreateMessa
 
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", SAMPLING_REQUEST_STARTED, correlation_id,
-        tool="prioritize_care_gaps", gap_count=len(gaps),
+        _logger,
+        "info",
+        SAMPLING_REQUEST_STARTED,
+        correlation_id,
+        tool="prioritize_care_gaps",
+        gap_count=len(gaps),
     )
     _sampling_calls[ctx.request_id] = (correlation_id, time.perf_counter())
     await emit_progress(
-        ctx, 0, None,
+        ctx,
+        0,
+        None,
         f"Asking the client's model to prioritize {len(gaps)} open care gap(s) (single round-trip, no fixed step count)",
     )
 
-    gap_list_text = "\n".join(f"- ({gap['gap_id']}) {gap['description']}" for gap in gaps)
+    gap_list_text = "\n".join(
+        f"- ({gap['gap_id']}) {gap['description']}" for gap in gaps
+    )
     return Sample(
         messages=[
             SamplingMessage(
@@ -1772,7 +2146,9 @@ async def _list_open_gaps_resolver(patient_id: str, ctx: Context) -> CreateMessa
 @mcp.tool()
 async def prioritize_care_gaps(
     patient_id: Annotated[str, Field(min_length=1)],
-    completion: Annotated[CreateMessageResult | None, Resolve(_list_open_gaps_resolver)],
+    completion: Annotated[
+        CreateMessageResult | None, Resolve(_list_open_gaps_resolver)
+    ],
     *,
     ctx: Context,
 ) -> CareGapPriorityResult:
@@ -1809,12 +2185,21 @@ async def prioritize_care_gaps(
     """
     gaps = _open_care_gaps_for_patient(patient_id)
     prioritized_at = datetime.now(timezone.utc).isoformat()
-    open_gaps = [OpenCareGapSummary(gap_id=gap["gap_id"], description=gap["description"]) for gap in gaps]
+    open_gaps = [
+        OpenCareGapSummary(gap_id=gap["gap_id"], description=gap["description"])
+        for gap in gaps
+    ]
 
     if not gaps:
         log_event(
-            _logger, "info", TOOL_COMPLETED, new_correlation_id(),
-            tool="prioritize_care_gaps", outcome="degraded", degraded_reason="no_open_care_gaps", gap_count=0,
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            new_correlation_id(),
+            tool="prioritize_care_gaps",
+            outcome="degraded",
+            degraded_reason="no_open_care_gaps",
+            gap_count=0,
         )
         return CareGapPriorityResult(
             patient_id=patient_id,
@@ -1829,12 +2214,19 @@ async def prioritize_care_gaps(
     if completion is None:
         reason = (
             "sampling_not_supported_by_client"
-            if ctx.client_capabilities is None or ctx.client_capabilities.sampling is None
+            if ctx.client_capabilities is None
+            or ctx.client_capabilities.sampling is None
             else "sampling_unavailable"
         )
         log_event(
-            _logger, "warning", TOOL_COMPLETED, new_correlation_id(),
-            tool="prioritize_care_gaps", outcome="degraded", degraded_reason=reason, gap_count=len(gaps),
+            _logger,
+            "warning",
+            TOOL_COMPLETED,
+            new_correlation_id(),
+            tool="prioritize_care_gaps",
+            outcome="degraded",
+            degraded_reason=reason,
+            gap_count=len(gaps),
         )
         return CareGapPriorityResult(
             patient_id=patient_id,
@@ -1847,11 +2239,23 @@ async def prioritize_care_gaps(
         )
 
     started = _sampling_calls.pop(ctx.request_id, None)
-    correlation_id, start_time = started if started is not None else (new_correlation_id(), None)
-    duration_ms = round((time.perf_counter() - start_time) * 1000, 1) if start_time is not None else None
+    correlation_id, start_time = (
+        started if started is not None else (new_correlation_id(), None)
+    )
+    duration_ms = (
+        round((time.perf_counter() - start_time) * 1000, 1)
+        if start_time is not None
+        else None
+    )
     log_event(
-        _logger, "info", SAMPLING_REQUEST_FINISHED, correlation_id,
-        tool="prioritize_care_gaps", outcome="success", duration_ms=duration_ms, gap_count=len(gaps),
+        _logger,
+        "info",
+        SAMPLING_REQUEST_FINISHED,
+        correlation_id,
+        tool="prioritize_care_gaps",
+        outcome="success",
+        duration_ms=duration_ms,
+        gap_count=len(gaps),
     )
     await emit_progress(ctx, 1, None, "Received the client model's prioritization")
     return CareGapPriorityResult(
@@ -1865,7 +2269,346 @@ async def prioritize_care_gaps(
     )
 
 
-def _find_citation(transcript: str, claimed_excerpt: str) -> tuple[int, int, str] | None:
+def _find_order(order_id: str) -> dict | None:
+    """Reconstruct a single test order's current state by replaying the
+    audit log, same pattern as _find_gap/_find_suggestion/_find_note."""
+    if not AUDIT_LOG_PATH.exists():
+        return None
+    ordered = None
+    resulted = None
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("order_id") != order_id:
+                continue
+            if entry["action"] == "order_test":
+                ordered = entry
+            elif entry["action"] == "record_test_result":
+                resulted = entry
+    if ordered is None:
+        return None
+    return {"ordered": ordered, "resulted": resulted}
+
+
+@mcp.tool()
+def order_test(
+    note_id: Annotated[str, Field(min_length=1)],
+    test_name: Annotated[str, Field(min_length=1, max_length=200)],
+    reason: Annotated[str, Field(min_length=1, max_length=500)],
+) -> TestOrder:
+    """
+    Record that a clinician ordered a diagnostic test following an encounter
+    (labs, imaging, ...), so the order is traceable in the audit trail
+    (REQ-006) and visible when this patient is seen again. Call this only
+    for a note_id returned by generate_encounter_note.
+
+    This is a clinician action, not an AI suggestion -- unlike suggest_codes
+    or identify_care_gaps there is no confidence/warning here, since the
+    calling model isn't proposing anything for review, it's recording a
+    decision the clinician already made. `reason` is the clinical
+    justification for the order (e.g. "elevated fasting glucose, rule out
+    diabetes"), not a confidence explanation.
+
+    The returned order is always status="pending" -- see record_test_result
+    to close it once a result comes back, and get_pending_items_for_patient
+    to see every still-pending order (and open care gap) for a patient, so a
+    follow-up visit isn't started blind to what an earlier one set in
+    motion.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="order_test",
+        note_id=note_id,
+        test_name=test_name,
+    )
+
+    note_record = _find_note(note_id)
+    if note_record is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="order_test",
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(
+            f"No generated note found for note_id={note_id!r}; confirm the note "
+            "exists (generate_encounter_note) before ordering a test against it."
+        )
+
+    generated = note_record["generated"]
+    order_id = str(uuid.uuid4())
+    ordered_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": ordered_at,
+            "action": "order_test",
+            "order_id": order_id,
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "test_name": test_name,
+            "reason": reason,
+            "status": "pending",
+        }
+    )
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="order_test",
+        note_id=note_id,
+        order_id=order_id,
+        outcome="success",
+    )
+    return TestOrder(
+        order_id=order_id,
+        note_id=note_id,
+        patient_id=generated["patient_id"],
+        ehr_system=generated["ehr_system"],
+        status="pending",
+        test_name=test_name,
+        reason=reason,
+        ordered_at=ordered_at,
+    )
+
+
+@mcp.tool()
+def record_test_result(
+    order_id: Annotated[str, Field(min_length=1)],
+    result_text: Annotated[str, Field(min_length=1, max_length=2000)],
+) -> ResultedTestOrder:
+    """
+    Record that a previously ordered test's result has come back (REQ-006),
+    closing the order so the next call to get_pending_items_for_patient
+    shows the result instead of an open order. Call this only for an
+    order_id returned by order_test.
+
+    Recording an already-resulted order with the identical result_text is a
+    no-op that returns the existing record -- it does not write a second
+    audit entry. Recording it again with a different result_text raises
+    ToolError: an order gets exactly one result, same as a note gets exactly
+    one clinician decision and a care gap gets exactly one closing action.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="record_test_result",
+        order_id=order_id,
+    )
+
+    record = _find_order(order_id)
+    if record is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="record_test_result",
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No test order found for order_id={order_id!r}.")
+
+    ordered = record["ordered"]
+    resulted = record["resulted"]
+
+    if resulted is not None:
+        if resulted["result_text"] == result_text:
+            log_event(
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool="record_test_result",
+                order_id=order_id,
+                outcome="success",
+                no_op=True,
+            )
+            return ResultedTestOrder(
+                order_id=order_id,
+                note_id=ordered["note_id"],
+                patient_id=ordered["patient_id"],
+                ehr_system=ordered["ehr_system"],
+                status="resulted",
+                test_name=ordered["test_name"],
+                reason=ordered["reason"],
+                result_text=resulted["result_text"],
+                ordered_at=ordered["timestamp"],
+                resulted_at=resulted["timestamp"],
+            )
+        log_event(
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool="record_test_result",
+            order_id=order_id,
+            reason="order_already_resulted",
+            error_class="AccessDenied",
+        )
+        raise ToolError(
+            f"order_id={order_id!r} already has a recorded result; "
+            "a test order gets exactly one result."
+        )
+
+    resulted_at = datetime.now(timezone.utc).isoformat()
+    _append_audit_entry(
+        {
+            "timestamp": resulted_at,
+            "action": "record_test_result",
+            "order_id": order_id,
+            "note_id": ordered["note_id"],
+            "ehr_system": ordered["ehr_system"],
+            "patient_id": ordered["patient_id"],
+            "result_text": result_text,
+            "status": "resulted",
+        }
+    )
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="record_test_result",
+        order_id=order_id,
+        outcome="success",
+        no_op=False,
+    )
+    return ResultedTestOrder(
+        order_id=order_id,
+        note_id=ordered["note_id"],
+        patient_id=ordered["patient_id"],
+        ehr_system=ordered["ehr_system"],
+        status="resulted",
+        test_name=ordered["test_name"],
+        reason=ordered["reason"],
+        result_text=result_text,
+        ordered_at=ordered["timestamp"],
+        resulted_at=resulted_at,
+    )
+
+
+def _orders_for_patient(patient_id: str) -> tuple[list[dict], list[dict]]:
+    """Every test order for a patient, split into still-pending and
+    resulted, reconstructed by replaying the audit log -- same
+    source-of-truth pattern as _open_care_gaps_for_patient, generalized to
+    orders so a new encounter can see what a prior one set in motion."""
+    if not AUDIT_LOG_PATH.exists():
+        return [], []
+    ordered: dict[str, dict] = {}
+    resulted: dict[str, dict] = {}
+    with AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry.get("patient_id") != patient_id:
+                continue
+            if entry["action"] == "order_test":
+                ordered[entry["order_id"]] = entry
+            elif entry["action"] == "record_test_result":
+                resulted[entry["order_id"]] = entry
+    pending = [o for oid, o in ordered.items() if oid not in resulted]
+    done = [
+        {"ordered": ordered[oid], "resulted": r}
+        for oid, r in resulted.items()
+        if oid in ordered
+    ]
+    return pending, done
+
+
+@mcp.tool()
+def get_pending_items_for_patient(
+    patient_id: Annotated[str, Field(min_length=1)],
+) -> PendingItemsSummary:
+    """
+    Continuity view for a returning patient (REQ-006): every care gap still
+    open, every test order still pending, and every test result recorded --
+    across every past encounter for this patient, not just the most recent
+    one. Call this at the start of a new encounter (after search_ehr_patient
+    confirms identity, before drafting a note) so a follow-up visit isn't
+    started blind to what an earlier one set in motion -- e.g. a test was
+    ordered and the result is now back, or a care gap from a prior visit was
+    never addressed.
+
+    Nothing here is computed or inferred -- it's a replay of this patient's
+    own audit trail, the same source-of-truth pattern every other read in
+    this server uses (see _open_care_gaps_for_patient, _orders_for_patient).
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="get_pending_items_for_patient",
+        patient_id=patient_id,
+    )
+
+    open_gaps = [
+        OpenCareGapSummary(gap_id=g["gap_id"], description=g["description"])
+        for g in _open_care_gaps_for_patient(patient_id)
+    ]
+    pending_raw, resulted_raw = _orders_for_patient(patient_id)
+    pending_orders = [
+        TestOrder(
+            order_id=o["order_id"],
+            note_id=o["note_id"],
+            patient_id=o["patient_id"],
+            ehr_system=o["ehr_system"],
+            status="pending",
+            test_name=o["test_name"],
+            reason=o["reason"],
+            ordered_at=o["timestamp"],
+        )
+        for o in pending_raw
+    ]
+    resulted_orders = [
+        ResultedTestOrder(
+            order_id=r["resulted"]["order_id"],
+            note_id=r["ordered"]["note_id"],
+            patient_id=r["ordered"]["patient_id"],
+            ehr_system=r["ordered"]["ehr_system"],
+            status="resulted",
+            test_name=r["ordered"]["test_name"],
+            reason=r["ordered"]["reason"],
+            result_text=r["resulted"]["result_text"],
+            ordered_at=r["ordered"]["timestamp"],
+            resulted_at=r["resulted"]["timestamp"],
+        )
+        for r in resulted_raw
+    ]
+    checked_at = datetime.now(timezone.utc).isoformat()
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="get_pending_items_for_patient",
+        outcome="success",
+        open_gap_count=len(open_gaps),
+        pending_order_count=len(pending_orders),
+        resulted_order_count=len(resulted_orders),
+    )
+    return PendingItemsSummary(
+        patient_id=patient_id,
+        open_care_gaps=open_gaps,
+        pending_orders=pending_orders,
+        resulted_orders=resulted_orders,
+        checked_at=checked_at,
+    )
+
+
+def _find_citation(
+    transcript: str, claimed_excerpt: str
+) -> tuple[int, int, str] | None:
     """Locate claimed_excerpt in transcript, tolerant of whitespace/case
     differences (line breaks, capitalization) but NOT of paraphrasing or
     punctuation changes -- a real match, not a fuzzy guess. Returns
@@ -1910,15 +2653,23 @@ def request_citation(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="request_citation", note_id=note_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="request_citation",
+        note_id=note_id,
     )
 
     note_record = _find_note(note_id)
     if note_record is None:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="request_citation", error_class="ResourceNotFoundError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="request_citation",
+            error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(
             f"No generated note found for note_id={note_id!r}; confirm the note "
@@ -1960,8 +2711,14 @@ def request_citation(
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="request_citation", note_id=note_id, outcome="success", found=found,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="request_citation",
+        note_id=note_id,
+        outcome="success",
+        found=found,
     )
 
     return CitationResult(
@@ -2007,11 +2764,17 @@ async def check_github_issue_status(
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
-        tool="check_github_issue_status", issue_number=issue_number,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="check_github_issue_status",
+        issue_number=issue_number,
     )
     await emit_progress(
-        ctx, 0, None,
+        ctx,
+        0,
+        None,
         f"Looking up GitHub issue/PR #{issue_number} (single external call, no fixed step count)",
     )
     checked_at = datetime.now(timezone.utc).isoformat()
@@ -2020,8 +2783,12 @@ async def check_github_issue_status(
         result = get_issue_or_pr(issue_number, correlation_id)
     except httpx.TimeoutException:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="check_github_issue_status", error_class="TimeoutError",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="check_github_issue_status",
+            error_class="TimeoutError",
         )
         _append_audit_entry(
             {
@@ -2033,13 +2800,23 @@ async def check_github_issue_status(
             }
         )
         return GitHubIssueStatus(
-            issue_number=issue_number, ok=False, found=None, state=None, title=None,
-            is_pull_request=None, error="Timed out contacting GitHub.", checked_at=checked_at,
+            issue_number=issue_number,
+            ok=False,
+            found=None,
+            state=None,
+            title=None,
+            is_pull_request=None,
+            error="Timed out contacting GitHub.",
+            checked_at=checked_at,
         )
     except GitHubAPIError:
         log_event(
-            _logger, "warning", TOOL_ERROR, correlation_id,
-            tool="check_github_issue_status", error_class="UpstreamUnavailable",
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="check_github_issue_status",
+            error_class="UpstreamUnavailable",
         )
         _append_audit_entry(
             {
@@ -2051,16 +2828,26 @@ async def check_github_issue_status(
             }
         )
         return GitHubIssueStatus(
-            issue_number=issue_number, ok=False, found=None, state=None, title=None,
-            is_pull_request=None, error="GitHub's API did not return a usable response.", checked_at=checked_at,
+            issue_number=issue_number,
+            ok=False,
+            found=None,
+            state=None,
+            title=None,
+            is_pull_request=None,
+            error="GitHub's API did not return a usable response.",
+            checked_at=checked_at,
         )
     except Exception:
         # Last-resort catch: REQ-003 is "on ANY failure, return the result,
         # never throw" -- this is the backstop for a failure mode not
         # already named above, not the primary error path.
         log_event(
-            _logger, "error", TOOL_ERROR, correlation_id,
-            tool="check_github_issue_status", error_class="UnexpectedError",
+            _logger,
+            "error",
+            TOOL_ERROR,
+            correlation_id,
+            tool="check_github_issue_status",
+            error_class="UnexpectedError",
         )
         _append_audit_entry(
             {
@@ -2072,14 +2859,24 @@ async def check_github_issue_status(
             }
         )
         return GitHubIssueStatus(
-            issue_number=issue_number, ok=False, found=None, state=None, title=None,
-            is_pull_request=None, error="An unexpected error occurred.", checked_at=checked_at,
+            issue_number=issue_number,
+            ok=False,
+            found=None,
+            state=None,
+            title=None,
+            is_pull_request=None,
+            error="An unexpected error occurred.",
+            checked_at=checked_at,
         )
 
     if not result["found"]:
         log_event(
-            _logger, "info", TOOL_COMPLETED, correlation_id,
-            tool="check_github_issue_status", outcome="not_found",
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool="check_github_issue_status",
+            outcome="not_found",
         )
         _append_audit_entry(
             {
@@ -2091,14 +2888,26 @@ async def check_github_issue_status(
             }
         )
         return GitHubIssueStatus(
-            issue_number=issue_number, ok=True, found=False, state=None, title=None,
-            is_pull_request=None, error=None, checked_at=checked_at,
+            issue_number=issue_number,
+            ok=True,
+            found=False,
+            state=None,
+            title=None,
+            is_pull_request=None,
+            error=None,
+            checked_at=checked_at,
         )
 
     data = result["data"]
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="check_github_issue_status", outcome="success", found=True, state=data.get("state"),
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="check_github_issue_status",
+        outcome="success",
+        found=True,
+        state=data.get("state"),
     )
     _append_audit_entry(
         {
@@ -2155,12 +2964,24 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
     orphaned: list[str] = []
     for entry in entries:
         action = entry["action"]
-        if action in ("approve_note", "reject_note") and ("note", entry["note_id"]) not in drafted:
-            orphaned.append(f"{action} for note_id={entry['note_id']!r} has no generate_note entry")
-        elif action in ("approve_codes", "reject_codes") and ("suggestion", entry["suggestion_id"]) not in drafted:
-            orphaned.append(f"{action} for suggestion_id={entry['suggestion_id']!r} has no suggest_codes entry")
+        if (
+            action in ("approve_note", "reject_note")
+            and ("note", entry["note_id"]) not in drafted
+        ):
+            orphaned.append(
+                f"{action} for note_id={entry['note_id']!r} has no generate_note entry"
+            )
+        elif (
+            action in ("approve_codes", "reject_codes")
+            and ("suggestion", entry["suggestion_id"]) not in drafted
+        ):
+            orphaned.append(
+                f"{action} for suggestion_id={entry['suggestion_id']!r} has no suggest_codes entry"
+            )
         elif action == "address_care_gap" and ("gap", entry["gap_id"]) not in drafted:
-            orphaned.append(f"address_care_gap for gap_id={entry['gap_id']!r} has no identify_care_gap entry")
+            orphaned.append(
+                f"address_care_gap for gap_id={entry['gap_id']!r} has no identify_care_gap entry"
+            )
 
     passed = not orphaned
     return ComplianceControlResult(
@@ -2186,11 +3007,19 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
     for entry in entries:
         action = entry["action"]
         if action in ("approve_note", "reject_note"):
-            note_decisions[entry["note_id"]] = note_decisions.get(entry["note_id"], 0) + 1
+            note_decisions[entry["note_id"]] = (
+                note_decisions.get(entry["note_id"], 0) + 1
+            )
         elif action in ("approve_codes", "reject_codes"):
-            suggestion_decisions[entry["suggestion_id"]] = suggestion_decisions.get(entry["suggestion_id"], 0) + 1
+            suggestion_decisions[entry["suggestion_id"]] = (
+                suggestion_decisions.get(entry["suggestion_id"], 0) + 1
+            )
 
-    violations = [f"note_id={note_id!r} has {count} decisions" for note_id, count in note_decisions.items() if count > 1]
+    violations = [
+        f"note_id={note_id!r} has {count} decisions"
+        for note_id, count in note_decisions.items()
+        if count > 1
+    ]
     violations += [
         f"suggestion_id={suggestion_id!r} has {count} decisions"
         for suggestion_id, count in suggestion_decisions.items()
@@ -2202,7 +3031,9 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         control_id="REQ-014-single-decision-integrity",
         description="No note or code-suggestion set has more than one recorded clinician decision.",
         passed=passed,
-        detail="Every note and suggestion set has at most one decision." if passed else "; ".join(violations),
+        detail="Every note and suggestion set has at most one decision."
+        if passed
+        else "; ".join(violations),
     )
 
 
@@ -2222,7 +3053,10 @@ def _check_security_incident_logging(entries: list[dict]) -> ComplianceControlRe
     incomplete = [
         entry
         for entry in incidents
-        if not entry.get("timestamp") or not entry.get("action") or entry.get("outcome") != "failure" or not entry.get("error_class")
+        if not entry.get("timestamp")
+        or not entry.get("action")
+        or entry.get("outcome") != "failure"
+        or not entry.get("error_class")
     ]
 
     passed = not incomplete
@@ -2246,12 +3080,25 @@ def _check_security_incident_logging(entries: list[dict]) -> ComplianceControlRe
 # throughout this file today (note_id, patient_id, suggestion_id, gap_id,
 # ehr_system) are deliberately NOT in this set -- REQ-011 forbids raw PHI
 # content, not the identifiers this codebase already treats as safe to log.
-FORBIDDEN_LOG_CONTEXT_KEYS = frozenset({
-    "transcript", "note_text", "edited_note_text",
-    "first_name", "last_name", "date_of_birth", "mrn", "patient_name",
-    "feedback", "confidence_reason", "claimed_excerpt", "matched_text",
-    "resolution", "description", "ranking_text",
-})
+FORBIDDEN_LOG_CONTEXT_KEYS = frozenset(
+    {
+        "transcript",
+        "note_text",
+        "edited_note_text",
+        "first_name",
+        "last_name",
+        "date_of_birth",
+        "mrn",
+        "patient_name",
+        "feedback",
+        "confidence_reason",
+        "claimed_excerpt",
+        "matched_text",
+        "resolution",
+        "description",
+        "ranking_text",
+    }
+)
 
 
 def _log_event_violations(source: str) -> list[str]:
@@ -2265,11 +3112,17 @@ def _log_event_violations(source: str) -> list[str]:
     tree = ast.parse(source)
     violations = []
     for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "log_event"):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "log_event"
+        ):
             continue
         for kw in node.keywords:
             if kw.arg in FORBIDDEN_LOG_CONTEXT_KEYS:
-                violations.append(f"log_event(...) at line {node.lineno} passes forbidden key {kw.arg!r}")
+                violations.append(
+                    f"log_event(...) at line {node.lineno} passes forbidden key {kw.arg!r}"
+                )
     return violations
 
 
@@ -2288,7 +3141,9 @@ def _check_no_phi_in_structured_logs() -> ComplianceControlResult:
         control_id="REQ-011-no-phi-in-structured-logs",
         description="No log_event(...) call site passes a keyword argument that could carry raw PHI.",
         passed=passed,
-        detail="No forbidden keys found in any log_event(...) call." if passed else "; ".join(violations),
+        detail="No forbidden keys found in any log_event(...) call."
+        if passed
+        else "; ".join(violations),
     )
 
 
@@ -2321,7 +3176,10 @@ def run_compliance_check() -> ComplianceCheckResult:
     """
     correlation_id = new_correlation_id()
     log_event(
-        _logger, "info", TOOL_STARTED, correlation_id,
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
         tool="run_compliance_check",
     )
 
@@ -2344,11 +3202,18 @@ def run_compliance_check() -> ComplianceCheckResult:
         }
     )
     log_event(
-        _logger, "info", TOOL_COMPLETED, correlation_id,
-        tool="run_compliance_check", outcome="success", all_passed=all_passed,
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="run_compliance_check",
+        outcome="success",
+        all_passed=all_passed,
     )
 
-    return ComplianceCheckResult(checked_at=checked_at, controls=controls, all_passed=all_passed)
+    return ComplianceCheckResult(
+        checked_at=checked_at, controls=controls, all_passed=all_passed
+    )
 
 
 @mcp.prompt(name="prepare-encounter-note")
@@ -2388,7 +3253,11 @@ if __name__ == "__main__":
     # only means something with one client per process. Do not scale this
     # by running more copies of server.py without redoing that design.
     log_event(
-        _logger, "info", SERVER_STARTED, new_correlation_id(),
-        transport="stdio", state_model="single-user-single-process",
+        _logger,
+        "info",
+        SERVER_STARTED,
+        new_correlation_id(),
+        transport="stdio",
+        state_model="single-user-single-process",
     )
     mcp.run(transport="stdio")

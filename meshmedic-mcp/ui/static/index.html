@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MeshMedic</title>
+<style>
+  :root {
+    --ink: #1b2430;
+    --ink-soft: #5b6b7c;
+    --line: #dfe6ec;
+    --paper: #ffffff;
+    --floor: #f4f7f9;
+    --accent: #2f5f8a;
+    --accent-soft: #eaf1f7;
+    --good: #1f7a4d;
+    --good-bg: #e8f5ee;
+    --warn: #a15c00;
+    --warn-bg: #fdf1de;
+    --bad: #a12b2b;
+    --bad-bg: #fbeaea;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--floor);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header {
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: 0.2px; }
+  header .tag { color: var(--ink-soft); font-size: 12px; margin-left: 10px; }
+  #conn { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  #conn.ok { color: var(--good); background: var(--good-bg); border-color: transparent; }
+  #conn.bad { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr) 340px;
+    gap: 20px;
+    max-width: 1440px;
+    margin: 20px auto;
+    padding: 0 20px 40px;
+    align-items: start;
+  }
+  @media (max-width: 1150px) {
+    .layout { grid-template-columns: 300px minmax(0, 1fr); }
+    #log { position: static; height: auto; max-height: 320px; }
+  }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; }
+    #patientPanel { position: static; }
+  }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 14px;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h2 .step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+  }
+  .card .hint { color: var(--ink-soft); font-size: 12px; margin: 0 0 14px; }
+
+  label { display: block; font-size: 12px; color: var(--ink-soft); margin: 10px 0 4px; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+
+  button {
+    font: inherit;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 12px;
+    margin-right: 8px;
+  }
+  button.secondary { background: var(--paper); color: var(--accent); }
+  button.ghost { background: transparent; color: var(--ink-soft); border-color: var(--line); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:hover:not(:disabled) { filter: brightness(0.95); }
+
+  .result { margin-top: 14px; padding: 12px 14px; border-radius: 6px; background: var(--accent-soft); font-size: 13px; }
+  .result.error { background: var(--bad-bg); color: var(--bad); }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+  .badge.draft { background: var(--accent-soft); color: var(--accent); }
+  .badge.low-conf { background: var(--warn-bg); color: var(--warn); }
+  .badge.ok { background: var(--good-bg); color: var(--good); }
+  .badge.fail { background: var(--bad-bg); color: var(--bad); }
+  .id-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; background: var(--floor); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; }
+
+  .gap-row { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-top: 10px; }
+  .gap-row .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-soft); }
+
+  #log, #patientPanel {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    max-height: calc(100vh - 40px);
+    position: sticky;
+    top: 20px;
+    overflow-y: auto;
+  }
+  #patientPanel h2 { font-size: 13px; margin: 0 0 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+  #patientPanel .active-strip {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    font-size: 12px;
+  }
+  #patientPanel .active-strip .row-line { display: flex; justify-content: space-between; margin-top: 4px; }
+  #patientPanel .active-strip .row-line:first-child { margin-top: 0; }
+  #patientPanel .active-strip .label { color: var(--ink-soft); }
+  #patientPanel .match-row {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #patientPanel .match-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+  #patientPanel .match-row.active { border-color: var(--accent); background: var(--accent-soft); }
+  #log h2 { font-size: 13px; margin: 0 0 10px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.06em; }
+  .log-entry { border-left: 3px solid var(--line); padding: 6px 0 6px 10px; margin-bottom: 8px; font-size: 12px; }
+  .log-entry.ok { border-color: var(--good); }
+  .log-entry.err { border-color: var(--bad); }
+  .log-entry .tool { font-weight: 600; }
+  .log-entry .time { color: var(--ink-soft); float: right; }
+  .log-entry pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; font-size: 11px; color: var(--ink-soft); max-height: 140px; overflow-y: auto; }
+
+  .plus-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+  .plus-row textarea { min-height: 44px; }
+  .small { font-size: 12px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>MeshMedic <span class="tag">clinical documentation copilot</span></h1>
+  </div>
+  <div id="conn">connecting…</div>
+</header>
+
+<div class="layout">
+  <aside id="patientPanel">
+    <h2>Patient — step 1</h2>
+    <p class="hint" style="margin-top:0">search_ehr_patient — stays visible while you fill in the rest, so you can work from it instead of re-searching.</p>
+    <label>EHR system</label>
+    <select id="ehrSystem"><option value="epic">epic</option><option value="oracle_health">oracle_health</option></select>
+    <label>MRN (or leave blank and use name + DOB)</label>
+    <input type="text" id="mrn" placeholder="e.g. E10293847" />
+    <label>Last name</label>
+    <input type="text" id="lastName" placeholder="Whitfield" />
+    <label>Date of birth</label>
+    <input type="text" id="dob" placeholder="1968-03-14" />
+    <button onclick="searchPatient()">Search</button>
+    <button class="ghost" onclick="prefillSample()">Fill sample encounter</button>
+    <div id="patientResult" class="result" style="display:none"></div>
+    <div id="matchList"></div>
+    <div class="active-strip">
+      <div class="row-line"><span class="label">Active patient</span><span class="id-pill" id="activePatient">none</span></div>
+      <div class="row-line"><span class="label">Active note</span><span class="id-pill" id="activeNoteMini">none</span></div>
+    </div>
+  </aside>
+  <main>
+
+    <div class="card">
+      <h2><span class="step">2</span> Encounter note</h2>
+      <p class="hint">generate_encounter_note — the AI drafts, it never finalizes. Nothing here is documentation until you approve it.</p>
+      <label>Transcript</label>
+      <div class="row" style="align-items:center; margin-bottom:8px;">
+        <div style="flex:0 0 auto; display:flex; gap:8px; align-items:center;">
+          <button type="button" id="recordBtn" onclick="startRecording()" style="margin:0;">● Record</button>
+          <button type="button" class="secondary" id="stopBtn" onclick="stopRecording()" disabled style="margin:0;">Stop</button>
+        </div>
+        <div id="levelMeter" style="flex:0 0 90px; height:10px; border:1px solid var(--line); border-radius:5px; overflow:hidden; background:var(--floor);">
+          <div id="levelFill" style="height:100%; width:0%; background:var(--good); transition:width 60ms linear;"></div>
+        </div>
+        <div style="flex:1">
+          <input type="file" id="audioFileInput" accept="audio/*" onchange="handleAudioFileUpload(this)" />
+        </div>
+      </div>
+      <p class="small" id="transcribeStatus" style="margin:0 0 8px;">Record live from the mic, or upload a pre-recorded clip — both transcribe via Whisper into the box below.</p>
+      <textarea id="transcript" placeholder="Paste or type the encounter transcript…"></textarea>
+      <div class="row">
+        <div>
+          <label>Draft note text</label>
+          <textarea id="noteText" placeholder="What the note should say…"></textarea>
+          <button class="secondary" type="button" onclick="draftNoteWithAI()">Draft with AI</button>
+          <span class="small" id="draftStatus"></span>
+        </div>
+        <div>
+          <label>Your confidence (0–1)</label>
+          <input type="number" id="confidence" min="0" max="1" step="0.05" value="0.9" />
+          <label>Reason (required if confidence &lt; 0.7)</label>
+          <input type="text" id="confidenceReason" placeholder="Why confidence is low…" />
+        </div>
+      </div>
+      <button onclick="generateNote()">Generate note</button>
+      <div id="noteResult" class="result" style="display:none"></div>
+
+      <div id="noteDecision" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+        <label>Edited note text (optional, used on approve)</label>
+        <textarea id="editedNoteText"></textarea>
+        <button onclick="approveNote()">Approve</button>
+        <button class="secondary" onclick="rejectNote()">Reject</button>
+        <div id="decisionResult" class="result" style="display:none"></div>
+      </div>
+      <div class="small">Active note: <span class="id-pill" id="activeNote">none</span></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">3</span> Suggested codes</h2>
+      <p class="hint">suggest_codes / approve_codes — ICD-10 / CPT, reviewed the same way as the note.</p>
+      <div class="row">
+        <div><label>Code</label><input type="text" id="codeValue" placeholder="I10" /></div>
+        <div><label>System</label><select id="codeSystem"><option value="icd-10">icd-10</option><option value="cpt">cpt</option></select></div>
+        <div><label>Description</label><input type="text" id="codeDesc" placeholder="Essential hypertension" /></div>
+      </div>
+      <label>Confidence (0–1)</label>
+      <input type="number" id="codeConfidence" min="0" max="1" step="0.05" value="0.9" />
+      <label>Reason (required if confidence &lt; 0.7)</label>
+      <input type="text" id="codeConfidenceReason" />
+      <button onclick="suggestCodes()">Suggest codes</button>
+      <div id="codesResult" class="result" style="display:none"></div>
+      <div id="codesDecision" style="display:none; margin-top:10px;">
+        <button onclick="approveCodes()">Approve codes</button>
+        <div id="codesDecisionResult" class="result" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">4</span> Care gaps</h2>
+      <p class="hint">identify_care_gaps / address_care_gap — each gap is flagged and closed independently.</p>
+      <div class="plus-row">
+        <div style="flex:1"><label>Gap description</label><textarea id="gapDesc" placeholder="e.g. Overdue for A1c screening"></textarea></div>
+        <div style="width:110px"><label>Confidence</label><input type="number" id="gapConfidence" min="0" max="1" step="0.05" value="0.9" /></div>
+      </div>
+      <label>Reason (required if confidence &lt; 0.7)</label>
+      <input type="text" id="gapConfidenceReason" />
+      <button onclick="identifyGaps()">Flag care gap</button>
+      <div id="gapsResult" class="result" style="display:none"></div>
+      <div id="gapsList"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">5</span> Continuity — orders &amp; follow-up</h2>
+      <p class="hint">order_test / record_test_result / get_pending_items_for_patient — what a returning patient's next visit sees from this one.</p>
+      <div class="row">
+        <div><label>Test name</label><input type="text" id="orderTestName" placeholder="A1c" /></div>
+        <div><label>Reason</label><input type="text" id="orderReason" placeholder="Overdue for annual diabetes screening" /></div>
+      </div>
+      <button onclick="orderTest()">Order test</button>
+      <div id="orderResult" class="result" style="display:none"></div>
+      <div id="ordersList"></div>
+      <hr style="border:none; border-top:1px solid var(--line); margin:16px 0;" />
+      <button class="secondary" onclick="loadPendingItems()">Load pending items for active patient</button>
+      <div id="pendingItemsResult" class="result" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">6</span> Citation check</h2>
+      <p class="hint">request_citation — proves a claimed excerpt genuinely appears in the transcript, or says honestly that it doesn't.</p>
+      <label>Claimed excerpt</label>
+      <input type="text" id="claimedExcerpt" placeholder="Text you believe supports a recommendation…" />
+      <button onclick="requestCitation()">Check citation</button>
+      <div id="citationResult" class="result" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">7</span> EHR fetch (live)</h2>
+      <p class="hint">fetch_patient_from_ehr — a real network call: JWT-signed OAuth2 token exchange, then a FHIR Patient.Read against Epic's sandbox.</p>
+      <div class="row">
+        <div><label>EHR system</label><select id="fetchEhr"><option value="epic">epic</option><option value="oracle_health">oracle_health</option></select></div>
+        <div><label>FHIR patient ID</label><input type="text" id="fhirPatientId" placeholder="e63wRTbPfr1p8UW81d8Seiw3" /></div>
+      </div>
+      <button onclick="fetchFromEhr()">Fetch from EHR</button>
+      <div id="ehrResult" class="result" style="display:none"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">8</span> Compliance check</h2>
+      <p class="hint">run_compliance_check — replays the audit trail this session just produced against four named controls.</p>
+      <button onclick="runCompliance()">Run compliance check</button>
+      <div id="complianceResult" class="result" style="display:none"></div>
+    </div>
+
+  </main>
+
+  <aside id="log">
+    <h2>Live activity</h2>
+    <div id="logEntries"><p class="small">Every button above calls the real MCP tool through the bridge. Calls will appear here as they happen.</p></div>
+  </aside>
+</div>
+
+<script>
+const state = { patientId: null, ehrSystem: 'epic', noteId: null, suggestionId: null, gaps: [] };
+
+function logEntry(tool, ok, payload) {
+  const wrap = document.getElementById('logEntries');
+  const el = document.createElement('div');
+  el.className = 'log-entry ' + (ok ? 'ok' : 'err');
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML = `<span class="tool">${tool}</span><span class="time">${time}</span><pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>`;
+  wrap.prepend(el);
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+async function callTool(name, args) {
+  const res = await fetch(`/api/tools/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const data = await res.json();
+  logEntry(name, res.ok, data);
+  if (!res.ok) throw new Error(data.error || `${name} failed`);
+  return data;
+}
+
+function showResult(elId, ok, payload) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  el.className = 'result' + (ok ? '' : ' error');
+  el.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+}
+
+async function checkConnection() {
+  const conn = document.getElementById('conn');
+  try {
+    await callTool('run_compliance_check', {});
+    conn.textContent = 'connected — live tool calls';
+    conn.className = 'ok';
+  } catch (e) {
+    conn.textContent = 'bridge not reachable yet';
+    conn.className = 'bad';
+  }
+}
+
+function prefillSample() {
+  document.getElementById('lastName').value = 'Whitfield';
+  document.getElementById('dob').value = '1968-03-14';
+  document.getElementById('transcript').value =
+    "Clinician: What brings you in today?\n" +
+    "Patient: I've been getting headaches most afternoons for about two weeks, and my home blood pressure readings have been running high, around 150 over 95.\n" +
+    "Clinician: Any chest pain, vision changes, or shortness of breath?\n" +
+    "Patient: No, none of that. Just the headaches.\n" +
+    "Clinician: I'm going to start you on lisinopril 10mg daily and have you recheck your blood pressure in two weeks. You're also overdue for your annual A1c -- let's get that drawn today.";
+  document.getElementById('noteText').value =
+    "Patient presents with two-week history of afternoon headaches and elevated home blood pressure readings (avg 150/95). Denies chest pain, vision changes, dyspnea. Assessment: likely uncontrolled hypertension. Plan: start lisinopril 10mg daily, recheck BP in 2 weeks, draw A1c today (overdue for annual screening).";
+}
+
+async function searchPatient() {
+  const args = { ehr_system: document.getElementById('ehrSystem').value, max_results: 5 };
+  const mrn = document.getElementById('mrn').value.trim();
+  const lastName = document.getElementById('lastName').value.trim();
+  const dob = document.getElementById('dob').value.trim();
+  if (mrn) args.mrn = mrn;
+  if (lastName) args.last_name = lastName;
+  if (dob) args.date_of_birth = dob;
+  try {
+    const data = await callTool('search_ehr_patient', args);
+    showResult('patientResult', true, data);
+    const matches = data.matches || data.patients || (Array.isArray(data) ? data : []);
+    const first = Array.isArray(matches) ? matches[0] : null;
+    renderMatches(Array.isArray(matches) ? matches : [], args.ehr_system);
+    if (Array.isArray(matches) && matches.length === 1) {
+      selectPatient(matches[0], args.ehr_system);
+    }
+  } catch (e) {
+    showResult('patientResult', false, e.message);
+  }
+}
+
+function renderMatches(matches, ehrSystem) {
+  const list = document.getElementById('matchList');
+  list.innerHTML = '';
+  matches.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'match-row' + (m.patient_id === state.patientId ? ' active' : '');
+    row.textContent = `${m.first_name} ${m.last_name} — DOB ${m.date_of_birth} — ${m.patient_id}`;
+    row.onclick = () => selectPatient(m, ehrSystem);
+    list.appendChild(row);
+  });
+}
+
+function selectPatient(match, ehrSystem) {
+  state.patientId = match.patient_id;
+  state.ehrSystem = ehrSystem;
+  document.getElementById('activePatient').textContent = state.patientId;
+  const rows = document.querySelectorAll('#matchList .match-row');
+  rows.forEach(r => r.classList.toggle('active', r.textContent.includes(match.patient_id)));
+}
+
+let mediaRecorder = null;
+let audioChunks = [];
+let audioCtx = null;
+let analyser = null;
+let levelRAF = null;
+let maxLevelSeen = 0;
+
+// Whisper hallucinates stock filler phrases ("thanks for watching", in
+// random languages) when fed silence -- seen for real while testing this.
+// Below this level (0-255 scale off getByteTimeDomainData's deviation from
+// the 128 midpoint), a recording is treated as silence and never sent to
+// the API, instead of burning a call on a guaranteed-bad transcript.
+const SILENCE_THRESHOLD = 4;
+
+function startLevelMeter(stream) {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    maxLevelSeen = 0;
+    const fill = document.getElementById('levelFill');
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for (let i = 0; i < data.length; i++) {
+        peak = Math.max(peak, Math.abs(data[i] - 128));
+      }
+      maxLevelSeen = Math.max(maxLevelSeen, peak);
+      const pct = Math.min(100, Math.round((peak / 60) * 100));
+      fill.style.width = pct + '%';
+      fill.style.background = peak < SILENCE_THRESHOLD ? 'var(--bad)' : 'var(--good)';
+      levelRAF = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {
+    // Meter is a diagnostic nicety -- if Web Audio isn't available, recording
+    // still works, it just can't warn about silence ahead of time.
+    audioCtx = null;
+  }
+}
+
+function stopLevelMeter() {
+  if (levelRAF) cancelAnimationFrame(levelRAF);
+  levelRAF = null;
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  document.getElementById('levelFill').style.width = '0%';
+}
+
+async function startRecording() {
+  const status = document.getElementById('transcribeStatus');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    startLevelMeter(stream);
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      stopLevelMeter();
+      if (maxLevelSeen < SILENCE_THRESHOLD) {
+        status.textContent = 'No audio detected (mic looks silent) — check the wrong device isn\'t selected, or Windows mic permissions, and try again. Nothing was sent to Whisper.';
+        return;
+      }
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      transcribeAudio(blob, 'recording.webm');
+    };
+    mediaRecorder.start();
+    document.getElementById('recordBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    status.textContent = 'Recording… watch the bar light up as you talk. Click Stop when done.';
+  } catch (e) {
+    status.textContent = 'Could not access the microphone: ' + e.message;
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  document.getElementById('recordBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+function handleAudioFileUpload(input) {
+  const file = input.files[0];
+  if (file) transcribeAudio(file, file.name);
+}
+
+async function transcribeAudio(blobOrFile, filename) {
+  const status = document.getElementById('transcribeStatus');
+  status.textContent = 'Transcribing…';
+  const fd = new FormData();
+  fd.append('audio', blobOrFile, filename);
+  try {
+    const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+    const data = await res.json();
+    logEntry('transcribe (Whisper)', res.ok, data);
+    if (!res.ok) {
+      status.textContent = data.error || 'Transcription failed.';
+      return;
+    }
+    document.getElementById('transcript').value = data.transcript;
+    status.textContent = 'Transcribed — review the text below before drafting a note.';
+  } catch (e) {
+    status.textContent = e.message;
+  }
+}
+
+async function draftNoteWithAI() {
+  const transcript = document.getElementById('transcript').value.trim();
+  const status = document.getElementById('draftStatus');
+  if (!transcript) {
+    status.textContent = 'Add a transcript first.';
+    return;
+  }
+  status.textContent = 'Drafting…';
+  try {
+    const res = await fetch('/api/draft-note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript }),
+    });
+    const data = await res.json();
+    logEntry('draft-note (AI)', res.ok, data);
+    if (!res.ok) {
+      status.textContent = data.error || 'Draft failed.';
+      return;
+    }
+    document.getElementById('noteText').value = data.note_text;
+    const u = data.usage || {};
+    status.textContent = `Drafted (${u.input_tokens ?? '?'} in / ${u.output_tokens ?? '?'} out tokens) — review before generating.`;
+  } catch (e) {
+    status.textContent = e.message;
+  }
+}
+
+async function generateNote() {
+  const transcript = document.getElementById('transcript').value;
+  const noteText = document.getElementById('noteText').value;
+  if (!transcript.trim()) {
+    showResult('noteResult', false, 'Transcript is empty. Record/upload audio, or type one in, first.');
+    return;
+  }
+  if (!noteText.trim()) {
+    showResult('noteResult', false, "Draft note text is empty. Click \"Draft with AI\" or type the note yourself first.");
+    return;
+  }
+  const confidence = parseFloat(document.getElementById('confidence').value);
+  const args = {
+    ehr_system: state.ehrSystem,
+    patient_id: state.patientId || 'epic-pt-10293847',
+    transcript,
+    note_text: noteText,
+    confidence,
+  };
+  const reason = document.getElementById('confidenceReason').value.trim();
+  if (reason) args.confidence_reason = reason;
+  try {
+    const data = await callTool('generate_encounter_note', args);
+    state.noteId = data.note_id;
+    document.getElementById('activeNote').textContent = state.noteId;
+    document.getElementById('activeNoteMini').textContent = state.noteId;
+    document.getElementById('editedNoteText').value = data.note_text || '';
+    let badge = ` <span class="badge draft">draft</span>`;
+    if (data.warning) badge += ` <span class="badge low-conf">${escapeHtml(data.warning)}</span>`;
+    showResult('noteResult', true, { note_id: data.note_id, status: data.status, warning: data.warning || null });
+    document.getElementById('noteDecision').style.display = 'block';
+  } catch (e) {
+    showResult('noteResult', false, e.message);
+  }
+}
+
+async function approveNote() {
+  const args = { note_id: state.noteId };
+  const edited = document.getElementById('editedNoteText').value.trim();
+  if (edited) args.edited_note_text = edited;
+  try {
+    const data = await callTool('approve_encounter_note', args);
+    showResult('decisionResult', true, data);
+  } catch (e) {
+    showResult('decisionResult', false, e.message);
+  }
+}
+
+async function rejectNote() {
+  try {
+    const data = await callTool('reject_encounter_note', { note_id: state.noteId, feedback: 'Rejected from clinician UI demo.' });
+    showResult('decisionResult', true, data);
+  } catch (e) {
+    showResult('decisionResult', false, e.message);
+  }
+}
+
+async function suggestCodes() {
+  const confidence = parseFloat(document.getElementById('codeConfidence').value);
+  const args = {
+    note_id: state.noteId,
+    codes: [{ code: document.getElementById('codeValue').value, code_system: document.getElementById('codeSystem').value, description: document.getElementById('codeDesc').value }],
+    confidence,
+  };
+  const reason = document.getElementById('codeConfidenceReason').value.trim();
+  if (reason) args.confidence_reason = reason;
+  try {
+    const data = await callTool('suggest_codes', args);
+    state.suggestionId = data.suggestion_id;
+    showResult('codesResult', true, data);
+    document.getElementById('codesDecision').style.display = 'block';
+  } catch (e) {
+    showResult('codesResult', false, e.message);
+  }
+}
+
+async function approveCodes() {
+  try {
+    const data = await callTool('approve_codes', { suggestion_id: state.suggestionId });
+    showResult('codesDecisionResult', true, data);
+  } catch (e) {
+    showResult('codesDecisionResult', false, e.message);
+  }
+}
+
+async function identifyGaps() {
+  const confidence = parseFloat(document.getElementById('gapConfidence').value);
+  const gap = { description: document.getElementById('gapDesc').value, confidence };
+  const reason = document.getElementById('gapConfidenceReason').value.trim();
+  if (reason) gap.confidence_reason = reason;
+  try {
+    const data = await callTool('identify_care_gaps', { note_id: state.noteId, gaps: [gap] });
+    showResult('gapsResult', true, data);
+    const gaps = data.gaps || (Array.isArray(data) ? data : []);
+    gaps.forEach(g => addGapRow(g));
+  } catch (e) {
+    showResult('gapsResult', false, e.message);
+  }
+}
+
+function addGapRow(gap) {
+  const list = document.getElementById('gapsList');
+  const row = document.createElement('div');
+  row.className = 'gap-row';
+  row.innerHTML = `
+    <div class="meta"><span class="id-pill">${gap.gap_id}</span><span>${escapeHtml(gap.description || '')}</span></div>
+    <input type="text" placeholder="Resolution…" style="margin-top:8px" />
+    <button class="secondary" style="margin-top:8px">Address</button>
+    <div class="result" style="display:none"></div>
+  `;
+  const input = row.querySelector('input');
+  const btn = row.querySelector('button');
+  const resultEl = row.querySelector('.result');
+  btn.onclick = async () => {
+    try {
+      const data = await callTool('address_care_gap', { gap_id: gap.gap_id, resolution: input.value || 'Addressed from clinician UI demo.' });
+      resultEl.style.display = 'block';
+      resultEl.className = 'result';
+      resultEl.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      resultEl.style.display = 'block';
+      resultEl.className = 'result error';
+      resultEl.textContent = e.message;
+    }
+  };
+  list.appendChild(row);
+}
+
+async function orderTest() {
+  try {
+    const data = await callTool('order_test', {
+      note_id: state.noteId,
+      test_name: document.getElementById('orderTestName').value,
+      reason: document.getElementById('orderReason').value,
+    });
+    showResult('orderResult', true, data);
+    addOrderRow(data);
+  } catch (e) {
+    showResult('orderResult', false, e.message);
+  }
+}
+
+function addOrderRow(order) {
+  const list = document.getElementById('ordersList');
+  const row = document.createElement('div');
+  row.className = 'gap-row';
+  row.innerHTML = `
+    <div class="meta"><span class="id-pill">${order.order_id}</span><span>${escapeHtml(order.test_name || '')} — ${escapeHtml(order.reason || '')}</span></div>
+    <input type="text" placeholder="Result text…" style="margin-top:8px" />
+    <button class="secondary" style="margin-top:8px">Record result</button>
+    <div class="result" style="display:none"></div>
+  `;
+  const input = row.querySelector('input');
+  const btn = row.querySelector('button');
+  const resultEl = row.querySelector('.result');
+  btn.onclick = async () => {
+    try {
+      const data = await callTool('record_test_result', { order_id: order.order_id, result_text: input.value || 'Result recorded from clinician UI demo.' });
+      resultEl.style.display = 'block';
+      resultEl.className = 'result';
+      resultEl.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+      resultEl.style.display = 'block';
+      resultEl.className = 'result error';
+      resultEl.textContent = e.message;
+    }
+  };
+  list.appendChild(row);
+}
+
+async function loadPendingItems() {
+  if (!state.patientId) {
+    showResult('pendingItemsResult', false, 'No active patient — search for one in step 1 first.');
+    return;
+  }
+  try {
+    const data = await callTool('get_pending_items_for_patient', { patient_id: state.patientId });
+    showResult('pendingItemsResult', true, data);
+  } catch (e) {
+    showResult('pendingItemsResult', false, e.message);
+  }
+}
+
+async function requestCitation() {
+  try {
+    const data = await callTool('request_citation', { note_id: state.noteId, claimed_excerpt: document.getElementById('claimedExcerpt').value });
+    showResult('citationResult', data.found !== false, data);
+  } catch (e) {
+    showResult('citationResult', false, e.message);
+  }
+}
+
+async function fetchFromEhr() {
+  try {
+    const data = await callTool('fetch_patient_from_ehr', { ehr_system: document.getElementById('fetchEhr').value, fhir_patient_id: document.getElementById('fhirPatientId').value });
+    showResult('ehrResult', true, data);
+  } catch (e) {
+    showResult('ehrResult', false, e.message);
+  }
+}
+
+async function runCompliance() {
+  try {
+    const data = await callTool('run_compliance_check', {});
+    showResult('complianceResult', !!data.all_passed, data);
+  } catch (e) {
+    showResult('complianceResult', false, e.message);
+  }
+}
+
+checkConnection();
+</script>
+</body>
+</html>

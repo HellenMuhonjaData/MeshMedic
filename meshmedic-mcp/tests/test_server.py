@@ -8,7 +8,15 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
-from mcp_types import ClientCapabilities, CreateMessageResult, ImageContent, ListRootsResult, Root, SamplingCapability, TextContent
+from mcp_types import (
+    ClientCapabilities,
+    CreateMessageResult,
+    ImageContent,
+    ListRootsResult,
+    Root,
+    SamplingCapability,
+    TextContent,
+)
 
 import github_client
 import server
@@ -33,10 +41,21 @@ class _FakeCtx:
     search_ehr_patient's progress reporting. A bare `meta=None` means
     emit_progress always no-ops, matching "no progress token supplied"."""
 
-    def __init__(self, request_id="test-request-id", sampling_supported=False, with_progress_token=False):
+    def __init__(
+        self,
+        request_id="test-request-id",
+        sampling_supported=False,
+        with_progress_token=False,
+    ):
         self.request_id = request_id
-        self.client_capabilities = ClientCapabilities(sampling=SamplingCapability()) if sampling_supported else None
-        meta = {"progress_token": "test-progress-token"} if with_progress_token else None
+        self.client_capabilities = (
+            ClientCapabilities(sampling=SamplingCapability())
+            if sampling_supported
+            else None
+        )
+        meta = (
+            {"progress_token": "test-progress-token"} if with_progress_token else None
+        )
         self.request_context = SimpleNamespace(meta=meta)
         self.progress_calls = []
 
@@ -112,7 +131,10 @@ def test_generate_encounter_note_flags_low_confidence_with_reason():
     entries = _read_audit_entries()
     assert entries[0]["flagged"] is True
     assert entries[0]["confidence"] == 0.4
-    assert entries[0]["confidence_reason"] == "Transcript doesn't specify onset, duration, or severity."
+    assert (
+        entries[0]["confidence_reason"]
+        == "Transcript doesn't specify onset, duration, or severity."
+    )
 
 
 def test_generate_encounter_note_at_threshold_is_not_flagged():
@@ -176,7 +198,10 @@ def test_approve_encounter_note_with_edit_records_final_text():
         edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
     )
 
-    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    assert (
+        reviewed.note_text
+        == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    )
     entries = _read_audit_entries()
     assert entries[1]["note_text"] == reviewed.note_text
     # The AI's original draft is still visible in its own entry.
@@ -212,7 +237,9 @@ def test_approve_then_reject_same_note_raises_tool_error():
     server.approve_encounter_note(note_id=note.note_id)
 
     with pytest.raises(ToolError):
-        server.reject_encounter_note(note_id=note.note_id, feedback="Actually, reject this.")
+        server.reject_encounter_note(
+            note_id=note.note_id, feedback="Actually, reject this."
+        )
 
     # No third audit entry was written for the rejected attempt.
     assert len(_read_audit_entries()) == 2
@@ -249,9 +276,13 @@ def _fixed_datetime(times):
     return _FakeDatetime
 
 
-def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(monkeypatch):
+def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(
+    monkeypatch,
+):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=30)]))
+    monkeypatch.setattr(
+        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=30)])
+    )
 
     note = _generate_note()
     reviewed = server.approve_encounter_note(note_id=note.note_id)
@@ -267,8 +298,11 @@ def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(mo
 def test_approve_encounter_note_at_target_boundary_is_not_exceeded(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        server, "datetime",
-        _fixed_datetime([t0, t0 + timedelta(seconds=server.REVIEW_TIME_TARGET_SECONDS)]),
+        server,
+        "datetime",
+        _fixed_datetime(
+            [t0, t0 + timedelta(seconds=server.REVIEW_TIME_TARGET_SECONDS)]
+        ),
     )
 
     note = _generate_note()
@@ -281,7 +315,9 @@ def test_approve_encounter_note_at_target_boundary_is_not_exceeded(monkeypatch):
 
 def test_approve_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)]))
+    monkeypatch.setattr(
+        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)])
+    )
 
     note = _generate_note()
     reviewed = server.approve_encounter_note(note_id=note.note_id)
@@ -296,19 +332,27 @@ def test_approve_encounter_note_over_target_returns_speed_up_suggestions(monkeyp
 
 def test_reject_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=125)]))
+    monkeypatch.setattr(
+        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=125)])
+    )
 
     note = _generate_note()
-    reviewed = server.reject_encounter_note(note_id=note.note_id, feedback="Needs more detail.")
+    reviewed = server.reject_encounter_note(
+        note_id=note.note_id, feedback="Needs more detail."
+    )
 
     assert reviewed.documentation_time_seconds == 125.0
     assert reviewed.exceeded_target is True
     assert reviewed.suggestions == server.SPEED_UP_SUGGESTIONS
 
 
-def test_approve_encounter_note_idempotent_replay_reuses_stored_documentation_time(monkeypatch):
+def test_approve_encounter_note_idempotent_replay_reuses_stored_documentation_time(
+    monkeypatch,
+):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)]))
+    monkeypatch.setattr(
+        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)])
+    )
 
     note = _generate_note()
     first = server.approve_encounter_note(note_id=note.note_id)
@@ -331,7 +375,10 @@ def test_edit_encounter_note_happy_path():
     )
 
     assert edited.status == "draft"
-    assert edited.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    assert (
+        edited.note_text
+        == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    )
 
     entries = _read_audit_entries()
     assert len(entries) == 2
@@ -350,7 +397,10 @@ def test_approve_encounter_note_uses_latest_saved_edit_by_default():
 
     reviewed = server.approve_encounter_note(note_id=note.note_id)
 
-    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    assert (
+        reviewed.note_text
+        == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    )
 
 
 def test_reject_encounter_note_uses_latest_saved_edit():
@@ -360,14 +410,21 @@ def test_reject_encounter_note_uses_latest_saved_edit():
         edited_note_text="Grace Whitfield: two-day mild headache, afebrile. No red flags.",
     )
 
-    reviewed = server.reject_encounter_note(note_id=note.note_id, feedback="Still not detailed enough.")
+    reviewed = server.reject_encounter_note(
+        note_id=note.note_id, feedback="Still not detailed enough."
+    )
 
-    assert reviewed.note_text == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    assert (
+        reviewed.note_text
+        == "Grace Whitfield: two-day mild headache, afebrile. No red flags."
+    )
 
 
 def test_edit_encounter_note_unknown_note_id_raises_and_does_not_audit():
     with pytest.raises(ResourceNotFoundError):
-        server.edit_encounter_note(note_id="does-not-exist", edited_note_text="Some edit.")
+        server.edit_encounter_note(
+            note_id="does-not-exist", edited_note_text="Some edit."
+        )
 
     assert _read_audit_entries() == []
 
@@ -377,7 +434,9 @@ def test_edit_encounter_note_after_decision_raises_tool_error():
     server.approve_encounter_note(note_id=note.note_id)
 
     with pytest.raises(ToolError):
-        server.edit_encounter_note(note_id=note.note_id, edited_note_text="Too late now.")
+        server.edit_encounter_note(
+            note_id=note.note_id, edited_note_text="Too late now."
+        )
 
     # No third audit entry was written for the rejected edit attempt.
     assert len(_read_audit_entries()) == 2
@@ -415,7 +474,10 @@ def test_flagged_note_manual_correction_is_saved_and_logged():
         edited_note_text="Grace Whitfield: two-day mild headache per follow-up call, afebrile.",
     )
 
-    assert corrected.note_text == "Grace Whitfield: two-day mild headache per follow-up call, afebrile."
+    assert (
+        corrected.note_text
+        == "Grace Whitfield: two-day mild headache per follow-up call, afebrile."
+    )
 
     entries = _read_audit_entries()
     assert len(entries) == 2
@@ -428,9 +490,13 @@ def _suggest_codes(note_id):
     return server.suggest_codes(
         note_id=note_id,
         codes=[
-            server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified"),
             server.CodeSuggestion(
-                code="99213", code_system="cpt", description="Established patient office visit, low complexity"
+                code="R51.9", code_system="icd-10", description="Headache, unspecified"
+            ),
+            server.CodeSuggestion(
+                code="99213",
+                code_system="cpt",
+                description="Established patient office visit, low complexity",
             ),
         ],
         confidence=0.95,
@@ -467,7 +533,11 @@ def test_suggest_codes_flags_low_confidence_with_reason():
 
     suggestion = server.suggest_codes(
         note_id=note.note_id,
-        codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+        codes=[
+            server.CodeSuggestion(
+                code="R51.9", code_system="icd-10", description="Headache, unspecified"
+            )
+        ],
         confidence=0.4,
         confidence_reason="Transcript doesn't clearly support a headache-only visit; may need a broader code.",
     )
@@ -486,7 +556,13 @@ def test_suggest_codes_low_confidence_without_reason_raises_and_does_not_audit()
     with pytest.raises(ToolError):
         server.suggest_codes(
             note_id=note.note_id,
-            codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+            codes=[
+                server.CodeSuggestion(
+                    code="R51.9",
+                    code_system="icd-10",
+                    description="Headache, unspecified",
+                )
+            ],
             confidence=0.4,
         )
 
@@ -517,7 +593,11 @@ def test_approve_codes_with_edit_records_final_codes():
 
     reviewed = server.approve_codes(
         suggestion_id=suggestion.suggestion_id,
-        edited_codes=[server.CodeSuggestion(code="R51.9", code_system="icd-10", description="Headache, unspecified")],
+        edited_codes=[
+            server.CodeSuggestion(
+                code="R51.9", code_system="icd-10", description="Headache, unspecified"
+            )
+        ],
     )
 
     assert len(reviewed.codes) == 1
@@ -537,11 +617,17 @@ def test_reject_codes_happy_path_requires_and_logs_feedback():
     )
 
     assert reviewed.status == "rejected"
-    assert reviewed.feedback == "99213 is too low a complexity level for this visit; should be 99214."
+    assert (
+        reviewed.feedback
+        == "99213 is too low a complexity level for this visit; should be 99214."
+    )
 
     entries = _read_audit_entries()
     assert entries[2]["action"] == "reject_codes"
-    assert entries[2]["feedback"] == "99213 is too low a complexity level for this visit; should be 99214."
+    assert (
+        entries[2]["feedback"]
+        == "99213 is too low a complexity level for this visit; should be 99214."
+    )
 
 
 def test_approve_codes_unknown_suggestion_id_raises_and_does_not_audit():
@@ -557,7 +643,9 @@ def test_approve_then_reject_same_suggestion_raises_tool_error():
     server.approve_codes(suggestion_id=suggestion.suggestion_id)
 
     with pytest.raises(ToolError):
-        server.reject_codes(suggestion_id=suggestion.suggestion_id, feedback="Actually, reject this.")
+        server.reject_codes(
+            suggestion_id=suggestion.suggestion_id, feedback="Actually, reject this."
+        )
 
     # No fourth audit entry was written for the rejected attempt.
     assert len(_read_audit_entries()) == 3
@@ -578,7 +666,11 @@ def _identify_gaps(note_id, descriptions, confidence=0.95, confidence_reason=Non
     return server.identify_care_gaps(
         note_id=note_id,
         gaps=[
-            server.CareGapInput(description=d, confidence=confidence, confidence_reason=confidence_reason)
+            server.CareGapInput(
+                description=d,
+                confidence=confidence,
+                confidence_reason=confidence_reason,
+            )
             for d in descriptions
         ],
     )
@@ -654,8 +746,12 @@ def test_identify_care_gaps_rejects_whole_batch_if_any_gap_fails_validation():
         server.identify_care_gaps(
             note_id=note.note_id,
             gaps=[
-                server.CareGapInput(description="High confidence gap.", confidence=0.95),
-                server.CareGapInput(description="Low confidence, no reason.", confidence=0.2),
+                server.CareGapInput(
+                    description="High confidence gap.", confidence=0.95
+                ),
+                server.CareGapInput(
+                    description="Low confidence, no reason.", confidence=0.2
+                ),
             ],
         )
 
@@ -673,21 +769,30 @@ def test_address_care_gap_happy_path():
     )
 
     assert addressed.status == "addressed"
-    assert addressed.resolution == "Ordered mammogram referral, scheduled for next week."
+    assert (
+        addressed.resolution == "Ordered mammogram referral, scheduled for next week."
+    )
     assert addressed.description == "Overdue for mammogram."
 
     entries = _read_audit_entries()
     assert len(entries) == 3  # generate_note + identify_care_gap + address_care_gap
     assert entries[2]["action"] == "address_care_gap"
     assert entries[2]["gap_id"] == gaps[0].gap_id
-    assert entries[2]["resolution"] == "Ordered mammogram referral, scheduled for next week."
+    assert (
+        entries[2]["resolution"]
+        == "Ordered mammogram referral, scheduled for next week."
+    )
 
 
 def test_care_gaps_from_same_call_are_addressed_independently():
     note = _generate_note()
-    gaps = _identify_gaps(note.note_id, ["Overdue for mammogram.", "Missing flu vaccine."])
+    gaps = _identify_gaps(
+        note.note_id, ["Overdue for mammogram.", "Missing flu vaccine."]
+    )
 
-    server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+    server.address_care_gap(
+        gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral."
+    )
 
     # The second gap from the same call is untouched -- still just flagged, not addressed.
     still_open = server._find_gap(gaps[1].gap_id)
@@ -708,10 +813,14 @@ def test_address_care_gap_unknown_gap_id_raises_and_does_not_audit():
 def test_address_care_gap_conflicting_resolution_raises_tool_error():
     note = _generate_note()
     gaps = _identify_gaps(note.note_id, ["Overdue for mammogram."])
-    server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+    server.address_care_gap(
+        gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral."
+    )
 
     with pytest.raises(ToolError):
-        server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Actually, patient declined.")
+        server.address_care_gap(
+            gap_id=gaps[0].gap_id, resolution="Actually, patient declined."
+        )
 
     # No entry was written for the conflicting attempt (generate_note + identify + first address only).
     assert len(_read_audit_entries()) == 3
@@ -720,8 +829,12 @@ def test_address_care_gap_conflicting_resolution_raises_tool_error():
 def test_address_care_gap_is_idempotent_for_identical_replay():
     note = _generate_note()
     gaps = _identify_gaps(note.note_id, ["Overdue for mammogram."])
-    first = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
-    second = server.address_care_gap(gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral.")
+    first = server.address_care_gap(
+        gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral."
+    )
+    second = server.address_care_gap(
+        gap_id=gaps[0].gap_id, resolution="Ordered mammogram referral."
+    )
 
     assert first == second
     # Replaying the identical resolution did not write a second audit entry
@@ -730,11 +843,21 @@ def test_address_care_gap_is_idempotent_for_identical_replay():
 
 
 def test_fetch_patient_from_ehr_epic_happy_path(monkeypatch):
-    fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3", "name": [{"family": "Lopez"}]}
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient)
+    fake_patient = {
+        "resourceType": "Patient",
+        "id": "e63wRTbPfr1p8UW81d8Seiw3",
+        "name": [{"family": "Lopez"}],
+    }
+    monkeypatch.setattr(
+        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+    )
 
     result = _run(
-        server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=_FakeCtx())
+        server.fetch_patient_from_ehr(
+            ehr_system="epic",
+            fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3",
+            ctx=_FakeCtx(),
+        )
     )
 
     assert result == fake_patient
@@ -748,7 +871,11 @@ def test_fetch_patient_from_ehr_epic_happy_path(monkeypatch):
 
 def test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure():
     with pytest.raises(ToolError):
-        _run(server.fetch_patient_from_ehr(ehr_system="oracle_health", fhir_patient_id="some-id", ctx=_FakeCtx()))
+        _run(
+            server.fetch_patient_from_ehr(
+                ehr_system="oracle_health", fhir_patient_id="some-id", ctx=_FakeCtx()
+            )
+        )
 
     entries = _read_audit_entries()
     assert len(entries) == 1
@@ -759,10 +886,16 @@ def test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure():
 
 
 def test_fetch_patient_from_ehr_not_found_raises_and_logs_failure(monkeypatch):
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: None)
+    monkeypatch.setattr(
+        server, "fetch_patient", lambda fhir_patient_id, correlation_id: None
+    )
 
     with pytest.raises(ResourceNotFoundError):
-        _run(server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="does-not-exist", ctx=_FakeCtx()))
+        _run(
+            server.fetch_patient_from_ehr(
+                ehr_system="epic", fhir_patient_id="does-not-exist", ctx=_FakeCtx()
+            )
+        )
 
     entries = _read_audit_entries()
     assert len(entries) == 1
@@ -779,7 +912,9 @@ def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypat
     with pytest.raises(ToolError):
         _run(
             server.fetch_patient_from_ehr(
-                ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=_FakeCtx()
+                ehr_system="epic",
+                fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3",
+                ctx=_FakeCtx(),
             )
         )
 
@@ -792,10 +927,14 @@ def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypat
 def test_search_ehr_patient_emits_progress_with_a_real_total_when_a_token_is_present():
     ctx = _FakeCtx(with_progress_token=True)
 
-    result = _run(server.search_ehr_patient(ehr_system="epic", mrn="E10293847", ctx=ctx))
+    result = _run(
+        server.search_ehr_patient(ehr_system="epic", mrn="E10293847", ctx=ctx)
+    )
 
     assert result.count == 1
-    epic_candidate_count = sum(1 for p in server.SAMPLE_PATIENTS if p["ehr_system"] == "epic")
+    epic_candidate_count = sum(
+        1 for p in server.SAMPLE_PATIENTS if p["ehr_system"] == "epic"
+    )
     assert len(ctx.progress_calls) == epic_candidate_count
     for position, (progress, total, message) in enumerate(ctx.progress_calls, start=1):
         assert progress == position
@@ -806,35 +945,47 @@ def test_search_ehr_patient_emits_progress_with_a_real_total_when_a_token_is_pre
 def test_search_ehr_patient_emits_no_progress_without_a_token():
     ctx = _FakeCtx(with_progress_token=False)
 
-    result = _run(server.search_ehr_patient(ehr_system="epic", mrn="E10293847", ctx=ctx))
+    result = _run(
+        server.search_ehr_patient(ehr_system="epic", mrn="E10293847", ctx=ctx)
+    )
 
     assert result.count == 1  # behaves identically either way
     assert ctx.progress_calls == []
 
 
-def test_fetch_patient_from_ehr_emits_progress_without_a_total_when_a_token_is_present(monkeypatch):
+def test_fetch_patient_from_ehr_emits_progress_without_a_total_when_a_token_is_present(
+    monkeypatch,
+):
     fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3"}
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient)
+    monkeypatch.setattr(
+        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+    )
     ctx = _FakeCtx(with_progress_token=True)
 
     result = _run(
-        server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=ctx)
+        server.fetch_patient_from_ehr(
+            ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=ctx
+        )
     )
 
     assert result == fake_patient
     assert len(ctx.progress_calls) == 1
-    progress, total, message = ctx.progress_calls[0]
+    _progress, total, message = ctx.progress_calls[0]
     assert total is None  # genuinely unknown, not invented
     assert "no fixed step count" in message
 
 
 def test_fetch_patient_from_ehr_emits_no_progress_without_a_token(monkeypatch):
     fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3"}
-    monkeypatch.setattr(server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient)
+    monkeypatch.setattr(
+        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+    )
     ctx = _FakeCtx(with_progress_token=False)
 
     result = _run(
-        server.fetch_patient_from_ehr(ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=ctx)
+        server.fetch_patient_from_ehr(
+            ehr_system="epic", fhir_patient_id="e63wRTbPfr1p8UW81d8Seiw3", ctx=ctx
+        )
     )
 
     assert result == fake_patient  # behaves identically either way
@@ -850,9 +1001,13 @@ def test_request_citation_happy_path_exact_match():
     )
 
     assert result.found is True
-    assert result.matched_text == "Patient reports mild headache for two days, no fever."
+    assert (
+        result.matched_text == "Patient reports mild headache for two days, no fever."
+    )
     assert result.start_offset == 0
-    assert result.end_offset == len("Patient reports mild headache for two days, no fever.")
+    assert result.end_offset == len(
+        "Patient reports mild headache for two days, no fever."
+    )
     assert result.explanation is None
 
     entries = _read_audit_entries()
@@ -870,7 +1025,9 @@ def test_request_citation_tolerant_of_whitespace_and_case():
     )
 
     assert result.found is True
-    assert result.matched_text == "Patient reports mild headache for two days, no fever."
+    assert (
+        result.matched_text == "Patient reports mild headache for two days, no fever."
+    )
 
 
 def test_request_citation_not_found_for_fabricated_text_returns_explanation():
@@ -918,7 +1075,9 @@ def test_read_transcript_file_allows_path_inside_declared_root(tmp_path):
     transcript_file = allowed / "transcript.txt"
     transcript_file.write_text("Patient reports mild cough.", encoding="utf-8")
 
-    result = server.read_transcript_file(file_path=str(transcript_file), roots=_roots_for(allowed))
+    result = server.read_transcript_file(
+        file_path=str(transcript_file), roots=_roots_for(allowed)
+    )
 
     assert result.denied is False
     assert result.transcript == "Patient reports mild cough."
@@ -938,7 +1097,9 @@ def test_read_transcript_file_denies_dot_dot_traversal_out_of_root(tmp_path):
     (secret / "passwd.txt").write_text("TOP SECRET", encoding="utf-8")
 
     traversal_path = str(allowed / ".." / "secret" / "passwd.txt")
-    result = server.read_transcript_file(file_path=traversal_path, roots=_roots_for(allowed))
+    result = server.read_transcript_file(
+        file_path=traversal_path, roots=_roots_for(allowed)
+    )
 
     assert result.denied is True
     assert result.transcript is None
@@ -962,9 +1123,13 @@ def test_read_transcript_file_denies_symlink_escape_out_of_root(tmp_path):
     try:
         os.symlink(secret, link, target_is_directory=True)
     except OSError:
-        pytest.skip("symlink creation is not permitted in this environment (needs Developer Mode or admin on Windows)")
+        pytest.skip(
+            "symlink creation is not permitted in this environment (needs Developer Mode or admin on Windows)"
+        )
 
-    result = server.read_transcript_file(file_path=str(link / "passwd.txt"), roots=_roots_for(allowed))
+    result = server.read_transcript_file(
+        file_path=str(link / "passwd.txt"), roots=_roots_for(allowed)
+    )
 
     assert result.denied is True
     assert result.transcript is None
@@ -976,7 +1141,9 @@ def test_read_transcript_file_denies_when_client_declares_no_roots(tmp_path):
     transcript_file = allowed / "transcript.txt"
     transcript_file.write_text("Patient reports mild cough.", encoding="utf-8")
 
-    result = server.read_transcript_file(file_path=str(transcript_file), roots=ListRootsResult(roots=[]))
+    result = server.read_transcript_file(
+        file_path=str(transcript_file), roots=ListRootsResult(roots=[])
+    )
 
     assert result.denied is True
 
@@ -986,7 +1153,9 @@ def test_read_transcript_file_unknown_file_raises_resource_not_found(tmp_path):
     allowed.mkdir()
 
     with pytest.raises(ResourceNotFoundError):
-        server.read_transcript_file(file_path=str(allowed / "does_not_exist.txt"), roots=_roots_for(allowed))
+        server.read_transcript_file(
+            file_path=str(allowed / "does_not_exist.txt"), roots=_roots_for(allowed)
+        )
 
     assert _read_audit_entries() == []
 
@@ -1028,7 +1197,9 @@ def test_open_care_gaps_for_patient_excludes_addressed_gaps():
 
 def test_list_open_gaps_resolver_returns_none_when_no_open_gaps():
     outcome = _run(
-        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=True))
+        server._list_open_gaps_resolver(
+            patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=True)
+        )
     )
 
     assert outcome is None
@@ -1038,7 +1209,9 @@ def test_list_open_gaps_resolver_returns_none_without_sampling_capability():
     _note_with_gaps("Overdue colonoscopy")
 
     outcome = _run(
-        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=False))
+        server._list_open_gaps_resolver(
+            patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=False)
+        )
     )
 
     assert outcome is None
@@ -1048,7 +1221,9 @@ def test_list_open_gaps_resolver_returns_sample_marker_with_capability():
     _note, gaps = _note_with_gaps("Overdue colonoscopy")
 
     outcome = _run(
-        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=True))
+        server._list_open_gaps_resolver(
+            patient_id="epic-pt-10293847", ctx=_FakeCtx(sampling_supported=True)
+        )
     )
 
     assert isinstance(outcome, server.Sample)
@@ -1060,7 +1235,11 @@ def test_list_open_gaps_resolver_returns_sample_marker_with_capability():
 
 def test_prioritize_care_gaps_degrades_when_no_open_gaps():
     result = _run(
-        server.prioritize_care_gaps(patient_id="epic-pt-10293847", completion=None, ctx=_FakeCtx(sampling_supported=True))
+        server.prioritize_care_gaps(
+            patient_id="epic-pt-10293847",
+            completion=None,
+            ctx=_FakeCtx(sampling_supported=True),
+        )
     )
 
     assert result.degraded is True
@@ -1073,7 +1252,11 @@ def test_prioritize_care_gaps_degrades_when_client_lacks_sampling_capability():
     _note_with_gaps("Overdue flu shot")
 
     result = _run(
-        server.prioritize_care_gaps(patient_id="epic-pt-10293847", completion=None, ctx=_FakeCtx(sampling_supported=False))
+        server.prioritize_care_gaps(
+            patient_id="epic-pt-10293847",
+            completion=None,
+            ctx=_FakeCtx(sampling_supported=False),
+        )
     )
 
     assert result.degraded is True
@@ -1086,13 +1269,17 @@ def test_prioritize_care_gaps_returns_ranking_text_from_real_completion():
     _note_with_gaps("Overdue flu shot", "Overdue mammogram")
     completion = CreateMessageResult(
         role="assistant",
-        content=TextContent(type="text", text="1. Flu shot is most urgent. 2. Mammogram can wait."),
+        content=TextContent(
+            type="text", text="1. Flu shot is most urgent. 2. Mammogram can wait."
+        ),
         model="client-chosen-model",
     )
 
     result = _run(
         server.prioritize_care_gaps(
-            patient_id="epic-pt-10293847", completion=completion, ctx=_FakeCtx(sampling_supported=True)
+            patient_id="epic-pt-10293847",
+            completion=completion,
+            ctx=_FakeCtx(sampling_supported=True),
         )
     )
 
@@ -1106,13 +1293,21 @@ def test_prioritize_care_gaps_duration_is_measured_when_resolver_and_body_share_
     _note_with_gaps("Overdue colonoscopy")
     ctx = _FakeCtx(request_id="shared-id", sampling_supported=True)
 
-    marker = _run(server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx))
+    marker = _run(
+        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx)
+    )
     assert marker is not None
 
     completion = CreateMessageResult(
-        role="assistant", content=TextContent(type="text", text="Colonoscopy is overdue."), model="client-model"
+        role="assistant",
+        content=TextContent(type="text", text="Colonoscopy is overdue."),
+        model="client-model",
     )
-    result = _run(server.prioritize_care_gaps(patient_id="epic-pt-10293847", completion=completion, ctx=ctx))
+    result = _run(
+        server.prioritize_care_gaps(
+            patient_id="epic-pt-10293847", completion=completion, ctx=ctx
+        )
+    )
 
     assert result.degraded is False
     assert "shared-id" not in server._sampling_calls  # popped, not leaked
@@ -1131,15 +1326,25 @@ def test_prioritize_care_gaps_emits_progress_at_start_and_finish_without_a_total
     _note_with_gaps("Overdue colonoscopy")
     ctx = _FakeCtx(sampling_supported=True, with_progress_token=True)
 
-    marker = _run(server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx))
+    marker = _run(
+        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx)
+    )
     assert marker is not None
     assert len(ctx.progress_calls) == 1
-    assert ctx.progress_calls[0][1] is None  # total: genuinely unknown for a single round-trip
+    assert (
+        ctx.progress_calls[0][1] is None
+    )  # total: genuinely unknown for a single round-trip
 
     completion = CreateMessageResult(
-        role="assistant", content=TextContent(type="text", text="Colonoscopy is overdue."), model="client-model"
+        role="assistant",
+        content=TextContent(type="text", text="Colonoscopy is overdue."),
+        model="client-model",
     )
-    _run(server.prioritize_care_gaps(patient_id="epic-pt-10293847", completion=completion, ctx=ctx))
+    _run(
+        server.prioritize_care_gaps(
+            patient_id="epic-pt-10293847", completion=completion, ctx=ctx
+        )
+    )
 
     assert len(ctx.progress_calls) == 2
     assert ctx.progress_calls[1][1] is None  # total
@@ -1149,23 +1354,36 @@ def test_prioritize_care_gaps_emits_no_progress_without_a_token():
     _note_with_gaps("Overdue colonoscopy")
     ctx = _FakeCtx(sampling_supported=True, with_progress_token=False)
 
-    marker = _run(server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx))
+    marker = _run(
+        server._list_open_gaps_resolver(patient_id="epic-pt-10293847", ctx=ctx)
+    )
     assert marker is not None
 
     completion = CreateMessageResult(
-        role="assistant", content=TextContent(type="text", text="Colonoscopy is overdue."), model="client-model"
+        role="assistant",
+        content=TextContent(type="text", text="Colonoscopy is overdue."),
+        model="client-model",
     )
-    _run(server.prioritize_care_gaps(patient_id="epic-pt-10293847", completion=completion, ctx=ctx))
+    _run(
+        server.prioritize_care_gaps(
+            patient_id="epic-pt-10293847", completion=completion, ctx=ctx
+        )
+    )
 
     assert ctx.progress_calls == []
 
 
 def test_check_github_issue_status_found_open_issue(monkeypatch):
     monkeypatch.setattr(
-        server, "get_issue_or_pr",
+        server,
+        "get_issue_or_pr",
         lambda issue_number, correlation_id: {
             "found": True,
-            "data": {"state": "open", "title": "Something worth fixing", "number": issue_number},
+            "data": {
+                "state": "open",
+                "title": "Something worth fixing",
+                "number": issue_number,
+            },
         },
     )
 
@@ -1181,10 +1399,15 @@ def test_check_github_issue_status_found_open_issue(monkeypatch):
 
 def test_check_github_issue_status_found_pull_request(monkeypatch):
     monkeypatch.setattr(
-        server, "get_issue_or_pr",
+        server,
+        "get_issue_or_pr",
         lambda issue_number, correlation_id: {
             "found": True,
-            "data": {"state": "closed", "title": "A merged PR", "pull_request": {"url": "..."}},
+            "data": {
+                "state": "closed",
+                "title": "A merged PR",
+                "pull_request": {"url": "..."},
+            },
         },
     )
 
@@ -1196,7 +1419,9 @@ def test_check_github_issue_status_found_pull_request(monkeypatch):
 
 
 def test_check_github_issue_status_not_found(monkeypatch):
-    monkeypatch.setattr(server, "get_issue_or_pr", lambda issue_number, correlation_id: {"found": False})
+    monkeypatch.setattr(
+        server, "get_issue_or_pr", lambda issue_number, correlation_id: {"found": False}
+    )
 
     result = _run(server.check_github_issue_status(issue_number=999999, ctx=_FakeCtx()))
 
@@ -1230,10 +1455,14 @@ def test_check_github_issue_status_upstream_error_returns_result_not_raise(monke
 
     assert result.ok is False
     assert result.error  # never empty
-    assert "500" not in result.error  # no upstream detail leaked into the caller-facing message
+    assert (
+        "500" not in result.error
+    )  # no upstream detail leaked into the caller-facing message
 
 
-def test_check_github_issue_status_unexpected_error_returns_result_not_raise(monkeypatch):
+def test_check_github_issue_status_unexpected_error_returns_result_not_raise(
+    monkeypatch,
+):
     def _raise_unexpected(issue_number, correlation_id):
         raise RuntimeError("something nobody named ahead of time")
 
@@ -1247,7 +1476,9 @@ def test_check_github_issue_status_unexpected_error_returns_result_not_raise(mon
     assert entries[-1]["error_class"] == "UnexpectedError"
 
 
-def test_check_github_issue_status_never_leaks_a_credential_or_host_in_the_error(monkeypatch):
+def test_check_github_issue_status_never_leaks_a_credential_or_host_in_the_error(
+    monkeypatch,
+):
     def _raise_upstream(issue_number, correlation_id):
         raise server.GitHubAPIError(
             "GitHub API rejected the request (status 401): bad credentials for token ghp_fake123"
@@ -1316,7 +1547,11 @@ def test_github_client_releases_response_in_finally_even_on_error_status(monkeyp
         def close(self):
             closed.append(True)
 
-    monkeypatch.setattr(github_client._http_client, "get", lambda url, headers=None, **kwargs: _FakeResponse())
+    monkeypatch.setattr(
+        github_client._http_client,
+        "get",
+        lambda url, headers=None, **kwargs: _FakeResponse(),
+    )
 
     with pytest.raises(github_client.GitHubAPIError):
         github_client.get_issue_or_pr(1, correlation_id="test-correlation")
@@ -1324,7 +1559,9 @@ def test_github_client_releases_response_in_finally_even_on_error_status(monkeyp
     assert closed == [True]
 
 
-def test_append_audit_entry_write_failure_raises_tool_error_not_swallowed(tmp_path, monkeypatch):
+def test_append_audit_entry_write_failure_raises_tool_error_not_swallowed(
+    tmp_path, monkeypatch
+):
     # Point the audit log at a directory instead of a file: opening it in
     # append mode fails with OSError on both Windows and POSIX, simulating a
     # real write failure (disk full, permission denied) without needing a
@@ -1378,7 +1615,7 @@ def test_log_event_violations_is_not_fooled_by_a_forbidden_name_as_a_value_or_in
     # "note_text" and "mrn" appear here, but never as a log_event keyword
     # name -- an AST-based check must not flag either.
     snippet = (
-        '# do not log note_text or mrn here\n'
+        "# do not log note_text or mrn here\n"
         'log_event(_logger, "info", TOOL_STARTED, correlation_id, tool="note_text", reason="mrn")\n'
     )
 
@@ -1390,7 +1627,11 @@ def test_log_event_violations_is_not_fooled_by_a_forbidden_name_as_a_value_or_in
 def test_run_compliance_check_includes_a_passing_no_phi_in_logs_control_on_the_real_file():
     result = server.run_compliance_check()
 
-    phi_control = next(c for c in result.controls if c.control_id == "REQ-011-no-phi-in-structured-logs")
+    phi_control = next(
+        c
+        for c in result.controls
+        if c.control_id == "REQ-011-no-phi-in-structured-logs"
+    )
     assert phi_control.passed is True
     assert phi_control.detail == "No forbidden keys found in any log_event(...) call."
 
@@ -1438,7 +1679,9 @@ def test_run_compliance_check_catches_an_orphaned_decision():
 
     result = server.run_compliance_check()
 
-    completeness = next(c for c in result.controls if c.control_id == "REQ-006-audit-completeness")
+    completeness = next(
+        c for c in result.controls if c.control_id == "REQ-006-audit-completeness"
+    )
     assert completeness.passed is False
     assert "no-such-note" in completeness.detail
     assert result.all_passed is False
@@ -1462,7 +1705,11 @@ def test_run_compliance_check_catches_two_decisions_on_one_note():
 
     result = server.run_compliance_check()
 
-    integrity = next(c for c in result.controls if c.control_id == "REQ-014-single-decision-integrity")
+    integrity = next(
+        c
+        for c in result.controls
+        if c.control_id == "REQ-014-single-decision-integrity"
+    )
     assert integrity.passed is False
     assert note.note_id in integrity.detail
     assert result.all_passed is False
@@ -1481,7 +1728,11 @@ def test_run_compliance_check_catches_an_incomplete_security_incident_record():
 
     result = server.run_compliance_check()
 
-    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    logging_control = next(
+        c
+        for c in result.controls
+        if c.control_id == "REQ-011-security-incident-logging"
+    )
     assert logging_control.passed is False
     assert result.all_passed is False
 
@@ -1503,7 +1754,11 @@ def test_run_compliance_check_ignores_an_access_denied_entry_not_tagged_as_an_in
 
     result = server.run_compliance_check()
 
-    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    logging_control = next(
+        c
+        for c in result.controls
+        if c.control_id == "REQ-011-security-incident-logging"
+    )
     assert logging_control.passed is True
     assert "0 security-incident event" in logging_control.detail
 
@@ -1516,7 +1771,9 @@ def test_run_compliance_check_recognizes_a_real_security_incident_as_complete(tm
     (secret / "passwd.txt").write_text("TOP SECRET", encoding="utf-8")
 
     traversal_path = str(allowed / ".." / "secret" / "passwd.txt")
-    denied = server.read_transcript_file(file_path=traversal_path, roots=_roots_for(allowed))
+    denied = server.read_transcript_file(
+        file_path=traversal_path, roots=_roots_for(allowed)
+    )
     assert denied.denied is True
 
     entries = _read_audit_entries()
@@ -1524,6 +1781,143 @@ def test_run_compliance_check_recognizes_a_real_security_incident_as_complete(tm
 
     result = server.run_compliance_check()
 
-    logging_control = next(c for c in result.controls if c.control_id == "REQ-011-security-incident-logging")
+    logging_control = next(
+        c
+        for c in result.controls
+        if c.control_id == "REQ-011-security-incident-logging"
+    )
     assert logging_control.passed is True
     assert "1 security-incident event" in logging_control.detail
+
+
+def test_order_test_happy_path():
+    note = _generate_note()
+
+    order = server.order_test(
+        note_id=note.note_id,
+        test_name="A1c",
+        reason="Overdue for annual diabetes screening.",
+    )
+
+    assert order.status == "pending"
+    assert order.test_name == "A1c"
+    assert order.patient_id == "epic-pt-10293847"
+
+    entries = _read_audit_entries()
+    assert len(entries) == 2  # generate_note + order_test
+    assert entries[1]["action"] == "order_test"
+    assert entries[1]["order_id"] == order.order_id
+    assert entries[1]["status"] == "pending"
+
+
+def test_order_test_unknown_note_id_raises_and_does_not_audit():
+    with pytest.raises(ResourceNotFoundError):
+        server.order_test(
+            note_id="does-not-exist", test_name="CBC", reason="Fatigue workup."
+        )
+
+    assert _read_audit_entries() == []
+
+
+def test_record_test_result_happy_path():
+    note = _generate_note()
+    order = server.order_test(
+        note_id=note.note_id, test_name="A1c", reason="Screening."
+    )
+
+    resulted = server.record_test_result(
+        order_id=order.order_id, result_text="A1c 6.1% (prediabetic range)."
+    )
+
+    assert resulted.status == "resulted"
+    assert resulted.result_text == "A1c 6.1% (prediabetic range)."
+    assert resulted.test_name == "A1c"
+
+    entries = _read_audit_entries()
+    assert len(entries) == 3  # generate_note + order_test + record_test_result
+    assert entries[2]["action"] == "record_test_result"
+    assert entries[2]["order_id"] == order.order_id
+
+
+def test_record_test_result_unknown_order_id_raises_and_does_not_audit():
+    _generate_note()  # only present so the audit-count assertion below has a baseline
+
+    with pytest.raises(ResourceNotFoundError):
+        server.record_test_result(order_id="does-not-exist", result_text="Normal.")
+
+    assert len(_read_audit_entries()) == 1  # generate_note only
+
+
+def test_record_test_result_is_idempotent_for_identical_replay():
+    note = _generate_note()
+    order = server.order_test(
+        note_id=note.note_id, test_name="A1c", reason="Screening."
+    )
+    server.record_test_result(order_id=order.order_id, result_text="A1c 6.1%.")
+
+    replayed = server.record_test_result(
+        order_id=order.order_id, result_text="A1c 6.1%."
+    )
+
+    assert replayed.result_text == "A1c 6.1%."
+    # No second audit entry for the identical replay.
+    assert len(_read_audit_entries()) == 3
+
+
+def test_record_test_result_conflicting_result_raises_tool_error():
+    note = _generate_note()
+    order = server.order_test(
+        note_id=note.note_id, test_name="A1c", reason="Screening."
+    )
+    server.record_test_result(order_id=order.order_id, result_text="A1c 6.1%.")
+
+    with pytest.raises(ToolError):
+        server.record_test_result(
+            order_id=order.order_id, result_text="A1c 5.4% (normal)."
+        )
+
+    # The conflicting attempt did not overwrite or append a second result.
+    assert len(_read_audit_entries()) == 3
+
+
+def test_get_pending_items_for_patient_empty_for_a_patient_with_no_history():
+    summary = server.get_pending_items_for_patient(patient_id="epic-pt-10293847")
+
+    assert summary.open_care_gaps == []
+    assert summary.pending_orders == []
+    assert summary.resulted_orders == []
+
+
+def test_get_pending_items_for_patient_surfaces_continuity_across_visits():
+    # Visit 1: an order is placed and a care gap is flagged but not addressed.
+    visit_one = _generate_note()
+    pending_order = server.order_test(
+        note_id=visit_one.note_id, test_name="A1c", reason="Screening."
+    )
+    resulted_order = server.order_test(
+        note_id=visit_one.note_id, test_name="Lipid panel", reason="Routine."
+    )
+    server.record_test_result(
+        order_id=resulted_order.order_id, result_text="LDL 130 mg/dL."
+    )
+    gaps = _identify_gaps(visit_one.note_id, ["Overdue for mammogram."])
+
+    # Visit 2: a different note for the SAME patient. The summary must still
+    # find the prior visit's still-open items -- this is the whole point of
+    # the tool (continuity), not just "this note's own items".
+    visit_two = server.generate_encounter_note(
+        ehr_system="epic",
+        patient_id="epic-pt-10293847",
+        transcript="Follow-up visit.",
+        note_text="Follow-up encounter note.",
+        confidence=0.95,
+    )
+    assert visit_two.note_id != visit_one.note_id
+
+    summary = server.get_pending_items_for_patient(patient_id="epic-pt-10293847")
+
+    assert [g.gap_id for g in summary.open_care_gaps] == [gaps[0].gap_id]
+    assert [o.order_id for o in summary.pending_orders] == [pending_order.order_id]
+    assert len(summary.resulted_orders) == 1
+    assert summary.resulted_orders[0].order_id == resulted_order.order_id
+    assert summary.resulted_orders[0].result_text == "LDL 130 mg/dL."
