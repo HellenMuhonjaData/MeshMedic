@@ -1,0 +1,2 @@
+ANTHROPIC_API_KEY=sk-ant-api03-********************************** (redacted for submission — real key is present in inbox/.env on my machine)
+ANTHROPIC_MODEL=claude-opus-5
