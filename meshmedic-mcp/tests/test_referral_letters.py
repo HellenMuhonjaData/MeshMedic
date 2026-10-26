@@ -512,3 +512,130 @@ def test_compliance_catches_a_letter_marked_sent_twice():
     )
     assert integrity.passed is False
     assert "marked sent 2 times" in integrity.detail
+
+
+# --- Voiding a letter that must not go out -----------------------------------
+
+
+def _void(letter_id, reason="Wrong patient."):
+    return server.void_referral_letter(
+        letter_id=letter_id, voided_by="Dr. R", void_reason=reason
+    )
+
+
+def test_void_a_ready_to_send_letter_removes_it_from_the_queue():
+    letter = _approved_letter()
+
+    voided = _void(letter.letter_id)
+
+    assert voided.status == "voided"
+    assert voided.voided_by == "Dr. R"
+    assert voided.void_reason == "Wrong patient."
+    assert voided.voided_at is not None
+    assert server.list_referral_letters(status="ready_to_send").count == 0
+    assert server.list_referral_letters(status="voided").count == 1
+    entry = _entries()[-1]
+    assert entry["action"] == "void_referral_letter"
+    assert entry["status_before"] == "ready_to_send"
+
+
+def test_void_a_draft():
+    draft = _letter(_note().note_id)
+
+    assert _void(draft.letter_id).status == "voided"
+    assert _entries()[-1]["status_before"] == "draft"
+
+
+def test_a_voided_letter_cannot_be_approved_or_sent():
+    draft = _letter(_note().note_id)
+    ready = _approved_letter(specialty="Neurology")
+    _void(draft.letter_id)
+    _void(ready.letter_id)
+
+    with pytest.raises(ToolError, match="voided"):
+        server.approve_referral_letter(letter_id=draft.letter_id, approved_by="Dr. R")
+    with pytest.raises(ToolError, match="voided"):
+        server.mark_referral_letter_sent(
+            letter_id=ready.letter_id, sent_by="Dr. R", send_method="mail"
+        )
+    assert not any(e["action"] == "mark_referral_letter_sent" for e in _entries())
+
+
+def test_a_sent_letter_cannot_be_voided():
+    letter = _approved_letter()
+    server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="fax"
+    )
+
+    with pytest.raises(ToolError, match="already sent"):
+        _void(letter.letter_id)
+    assert not any(e["action"] == "void_referral_letter" for e in _entries())
+
+
+def test_void_is_idempotent():
+    letter = _approved_letter()
+    first = _void(letter.letter_id)
+
+    again = _void(letter.letter_id, reason="Different wording on retry.")
+
+    assert again == first
+    voids = [e for e in _entries() if e["action"] == "void_referral_letter"]
+    assert len(voids) == 1
+
+
+def test_void_unknown_letter_raises_not_found():
+    with pytest.raises(ResourceNotFoundError):
+        _void("nope")
+
+
+def test_void_save_failure_leaves_letter_in_the_queue(read_only_log):
+    letter = _approved_letter()
+
+    with read_only_log(), pytest.raises(ToolError, match="audit trail"):
+        _void(letter.letter_id)
+
+    assert server.list_referral_letters(status="ready_to_send").count == 1
+
+
+def test_same_request_can_be_prepared_again_after_a_void():
+    note = _note()
+    first = _letter(note.note_id)
+    _void(first.letter_id, reason="Typo in reason.")
+
+    fresh = _letter(note.note_id)
+
+    assert fresh.letter_id != first.letter_id
+    assert fresh.status == "draft"
+    # And the fresh one is idempotent in turn.
+    assert _letter(note.note_id).letter_id == fresh.letter_id
+
+
+def test_void_reason_contract_rejects_empty_and_oversized():
+    adapter = TypeAdapter(referral_letters.VoidReasonField)
+    for bad in ("", "x" * 501):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(bad)
+
+
+def test_compliance_passes_after_void_and_catches_void_violations():
+    letter = _approved_letter()
+    _void(letter.letter_id)
+    assert server.run_compliance_check().all_passed is True
+
+    _raw(
+        {
+            "timestamp": "t",
+            "action": "mark_referral_letter_sent",
+            "letter_id": letter.letter_id,
+        }
+    )
+    _raw({"timestamp": "t", "action": "void_referral_letter", "letter_id": "ghost"})
+    controls = {c.control_id: c for c in server.run_compliance_check().controls}
+
+    integrity = controls["REQ-014-single-decision-integrity"]
+    assert integrity.passed is False
+    assert "both voided and marked sent" in integrity.detail
+    completeness = controls["REQ-006-audit-completeness"]
+    assert completeness.passed is False
+    assert "ghost" in completeness.detail
+    assert "missing voided_by or void_reason" in completeness.detail

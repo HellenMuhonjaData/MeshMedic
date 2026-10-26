@@ -38,6 +38,7 @@ from referral_letters import (
     ReferralLetterList,
     SendMethod,
     SpecialtyField,
+    VoidReasonField,
 )
 from roots_guard import resolve_within_roots
 from sample_patients import SAMPLE_PATIENTS
@@ -2757,6 +2758,8 @@ def approve_referral_letter(
         )
         raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
 
+    if letter.status == "voided":
+        raise _voided_letter_error(tool, correlation_id, letter)
     final_text = edited_letter_text if edited_letter_text is not None else letter.letter_text
     if letter.status != "draft":
         if final_text == letter.letter_text:
@@ -2873,6 +2876,8 @@ def mark_referral_letter_sent(
             error_class="ResourceNotFoundError",
         )
         raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+    if letter.status == "voided":
+        raise _voided_letter_error(tool, correlation_id, letter)
     if letter.status == "draft":
         raise _referral_tool_error(
             tool,
@@ -2921,6 +2926,107 @@ def mark_referral_letter_sent(
         tool=tool,
         letter_id=letter_id,
         send_method=send_method,
+        outcome="success",
+        no_op=False,
+    )
+    return referral_letters.find_letter(_all_audit_entries(), letter_id)
+
+
+def _voided_letter_error(
+    tool: str, correlation_id: str, letter: ReferralLetter
+) -> ToolError:
+    log_event(
+        _logger,
+        "warning",
+        ACCESS_DENIED,
+        correlation_id,
+        tool=tool,
+        letter_id=letter.letter_id,
+        reason="letter_voided",
+        error_class="AccessDenied",
+    )
+    return ToolError(
+        f"letter_id={letter.letter_id!r} was voided by {letter.voided_by} and can no "
+        "longer be approved or sent. Prepare a new letter if one is still needed."
+    )
+
+
+@mcp.tool()
+def void_referral_letter(
+    letter_id: Annotated[str, Field(min_length=1)],
+    voided_by: ClinicianField,
+    void_reason: VoidReasonField,
+) -> ReferralLetter:
+    """
+    Withdraw a referral letter that must not go out -- e.g. it was prepared
+    for the wrong patient or contains an error. Allowed for draft and
+    ready_to_send letters; a voided letter drops out of the ready-to-send
+    queue and can never be approved or marked sent. Who voided it, when, and
+    why (void_reason is required) are recorded in the audit trail; nothing
+    is deleted, so the letter's full history stays reviewable.
+
+    A sent letter can't be voided (it has already left -- raises ToolError).
+    Voiding an already-voided letter is a no-op returning the existing
+    record. The same note/specialty/reason can be prepared again afterwards
+    with generate_referral_letter, which creates a fresh letter.
+    """
+    tool = "void_referral_letter"
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, letter_id=letter_id
+    )
+
+    letter = referral_letters.find_letter(_all_audit_entries(), letter_id)
+    if letter is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool=tool,
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+    if letter.status == "voided":
+        log_event(
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool=tool,
+            letter_id=letter_id,
+            outcome="success",
+            no_op=True,
+        )
+        return letter
+    if letter.status == "sent":
+        log_event(
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool=tool,
+            letter_id=letter_id,
+            reason="letter_already_sent",
+            error_class="AccessDenied",
+        )
+        raise ToolError(
+            f"letter_id={letter_id!r} was already sent via {letter.send_method!r} and "
+            "can't be voided; contact the recipient directly to correct it."
+        )
+
+    entry = referral_letters.void_entry(
+        letter, datetime.now(timezone.utc).isoformat(), voided_by, void_reason
+    )
+    _append_audit_entry(entry)
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool=tool,
+        letter_id=letter_id,
+        status_before=letter.status,
         outcome="success",
         no_op=False,
     )
@@ -3323,6 +3429,17 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
                 f"{action} for letter_id={entry['letter_id']!r} has no "
                 f"{referral_letters.APPROVE_ACTION} entry"
             )
+        elif action == referral_letters.VOID_ACTION:
+            if ("letter", entry["letter_id"]) not in drafted:
+                orphaned.append(
+                    f"{action} for letter_id={entry['letter_id']!r} has no "
+                    f"{referral_letters.GENERATE_ACTION} entry"
+                )
+            if not entry.get("void_reason") or not entry.get("voided_by"):
+                orphaned.append(
+                    f"{action} for letter_id={entry['letter_id']!r} is missing "
+                    "voided_by or void_reason"
+                )
 
     passed = not orphaned
     return ComplianceControlResult(
@@ -3347,6 +3464,7 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
     suggestion_decisions: dict[str, int] = {}
     letter_decisions: dict[str, int] = {}
     letter_sends: dict[str, int] = {}
+    letter_voids: dict[str, int] = {}
     for entry in entries:
         action = entry["action"]
         if action in ("approve_note", "reject_note"):
@@ -3364,6 +3482,10 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         elif action == referral_letters.SEND_ACTION:
             letter_sends[entry["letter_id"]] = (
                 letter_sends.get(entry["letter_id"], 0) + 1
+            )
+        elif action == referral_letters.VOID_ACTION:
+            letter_voids[entry["letter_id"]] = (
+                letter_voids.get(entry["letter_id"], 0) + 1
             )
 
     violations = [
@@ -3385,6 +3507,16 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         f"letter_id={letter_id!r} was marked sent {count} times"
         for letter_id, count in letter_sends.items()
         if count > 1
+    ]
+    violations += [
+        f"letter_id={letter_id!r} was voided {count} times"
+        for letter_id, count in letter_voids.items()
+        if count > 1
+    ]
+    violations += [
+        f"letter_id={letter_id!r} was both voided and marked sent"
+        for letter_id in letter_voids
+        if letter_id in letter_sends
     ]
 
     passed = not violations
@@ -3461,6 +3593,7 @@ FORBIDDEN_LOG_CONTEXT_KEYS = frozenset(
         "letter_text",
         "edited_letter_text",
         "referral_reason",
+        "void_reason",
     }
 )
 

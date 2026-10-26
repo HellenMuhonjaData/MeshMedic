@@ -13,6 +13,9 @@ Lifecycle: draft -> ready_to_send (clinician approval) -> sent (clinician
 records how they delivered it). Nothing here delivers anything: "sent"
 records a delivery the clinician made outside this system (printed and
 handed over, faxed, mailed...), so the audit trail shows the letter left.
+A draft or ready_to_send letter can instead be voided (e.g. wrong patient):
+it is withdrawn for good, with who/when/why recorded. A sent letter can't
+be voided -- it has already left. Voiding never deletes the audit history.
 
 Failure modes handled (raised as MissingEncounterData for the caller to
 surface): the note was never generated, was never approved (an unreviewed
@@ -29,10 +32,11 @@ from pydantic import BaseModel, Field
 GENERATE_ACTION = "generate_referral_letter"
 APPROVE_ACTION = "approve_referral_letter"
 SEND_ACTION = "mark_referral_letter_sent"
+VOID_ACTION = "void_referral_letter"
 
 MAX_LETTER_CHARS = 10000
 
-LetterStatus = Literal["draft", "ready_to_send", "sent"]
+LetterStatus = Literal["draft", "ready_to_send", "sent", "voided"]
 
 # How the clinician got the letter out. This server never delivers a letter
 # itself -- marking it sent records a delivery that happened outside it.
@@ -59,6 +63,9 @@ class ReferralLetter(BaseModel):
     sent_at: str | None = None
     sent_by: str | None = None
     send_method: SendMethod | None = None
+    voided_at: str | None = None
+    voided_by: str | None = None
+    void_reason: str | None = None
 
 
 class ReferralLetterList(BaseModel):
@@ -70,6 +77,7 @@ class ReferralLetterList(BaseModel):
 SpecialtyField = Annotated[str, Field(min_length=1, max_length=100)]
 ReasonField = Annotated[str, Field(min_length=1, max_length=1000)]
 ClinicianField = Annotated[str, Field(min_length=1, max_length=200)]
+VoidReasonField = Annotated[str, Field(min_length=1, max_length=500)]
 
 
 def completed_encounter(note_record: dict | None, note_id: str) -> dict:
@@ -140,20 +148,27 @@ def _same_request(entry: dict, note_id: str, specialty: str, reason: str) -> boo
 def existing_letter_id(
     entries: list[dict], note_id: str, specialty: str, referral_reason: str
 ) -> str | None:
-    """Idempotency key: one letter per (note, specialty, reason). A repeated
-    generate call returns the existing letter instead of creating a duplicate."""
+    """Idempotency key: one live letter per (note, specialty, reason). A
+    repeated generate call returns the existing letter instead of creating a
+    duplicate. Voided letters don't count, so the same request can be
+    prepared again after a void."""
+    voided = {e["letter_id"] for e in entries if e.get("action") == VOID_ACTION}
     for entry in entries:
-        if entry.get("action") == GENERATE_ACTION and _same_request(
-            entry, note_id, specialty, referral_reason
+        if (
+            entry.get("action") == GENERATE_ACTION
+            and entry["letter_id"] not in voided
+            and _same_request(entry, note_id, specialty, referral_reason)
         ):
             return entry["letter_id"]
     return None
 
 
 def _build_letter(
-    generated: dict, approval: dict | None, sent: dict | None
+    generated: dict, approval: dict | None, sent: dict | None, void: dict | None
 ) -> ReferralLetter:
-    if sent and approval:
+    if void:
+        status = "voided"
+    elif sent and approval:
         status = "sent"
     elif approval:
         status = "ready_to_send"
@@ -173,24 +188,33 @@ def _build_letter(
         sent_at=sent["timestamp"] if sent and approval else None,
         sent_by=sent["sent_by"] if sent and approval else None,
         send_method=sent["send_method"] if sent and approval else None,
+        voided_at=void["timestamp"] if void else None,
+        voided_by=void["voided_by"] if void else None,
+        void_reason=void["void_reason"] if void else None,
     )
 
 
 def _replay(entries: list[dict]) -> dict[str, ReferralLetter]:
     """Every letter in the audit entries, keyed by letter_id, oldest first."""
     generated: dict[str, dict] = {}
-    approvals: dict[str, dict] = {}
-    sends: dict[str, dict] = {}
+    by_action: dict[str, dict[str, dict]] = {
+        APPROVE_ACTION: {},
+        SEND_ACTION: {},
+        VOID_ACTION: {},
+    }
     for entry in entries:
         action = entry.get("action")
         if action == GENERATE_ACTION:
             generated[entry["letter_id"]] = entry
-        elif action == APPROVE_ACTION:
-            approvals[entry["letter_id"]] = entry
-        elif action == SEND_ACTION:
-            sends[entry["letter_id"]] = entry
+        elif action in by_action:
+            by_action[action][entry["letter_id"]] = entry
     return {
-        letter_id: _build_letter(gen, approvals.get(letter_id), sends.get(letter_id))
+        letter_id: _build_letter(
+            gen,
+            by_action[APPROVE_ACTION].get(letter_id),
+            by_action[SEND_ACTION].get(letter_id),
+            by_action[VOID_ACTION].get(letter_id),
+        )
         for letter_id, gen in generated.items()
     }
 
@@ -269,4 +293,21 @@ def send_entry(
         "sent_by": sent_by,
         "send_method": send_method,
         "status": "sent",
+    }
+
+
+def void_entry(
+    letter: ReferralLetter, timestamp: str, voided_by: str, void_reason: str
+) -> dict:
+    return {
+        "timestamp": timestamp,
+        "action": VOID_ACTION,
+        "letter_id": letter.letter_id,
+        "note_id": letter.note_id,
+        "ehr_system": letter.ehr_system,
+        "patient_id": letter.patient_id,
+        "voided_by": voided_by,
+        "void_reason": void_reason,
+        "status_before": letter.status,
+        "status": "voided",
     }

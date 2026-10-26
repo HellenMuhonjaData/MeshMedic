@@ -340,6 +340,14 @@
           </div>
           <div id="letterSendResult" class="result" style="display:none"></div>
         </div>
+        <div id="letterVoidControls" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+          <label>Void this letter (e.g. wrong patient) — reason, required</label>
+          <div class="plus-row" style="margin-top:0; align-items:center">
+            <input type="text" id="letterVoidReason" placeholder="Wrong patient — encounter belongs to another chart" style="flex:1" />
+            <button class="secondary" onclick="voidActiveLetter()" style="margin:0">Void letter</button>
+          </div>
+        </div>
+        <div id="letterVoidResult" class="result" style="display:none"></div>
       </div>
     </div>
 
@@ -351,10 +359,11 @@
           <select id="queueFilter" onchange="loadLetterQueue()">
             <option value="ready_to_send">Ready to send</option>
             <option value="sent">Sent</option>
+            <option value="voided">Voided</option>
             <option value="">All letters</option>
           </select>
         </div>
-        <div><label>Sent by (recorded when you mark a letter sent)</label><input type="text" id="queueSentBy" placeholder="Dr. A. Rivera" /></div>
+        <div><label>Your name (recorded when you mark a letter sent or void it)</label><input type="text" id="queueSentBy" placeholder="Dr. A. Rivera" /></div>
       </div>
       <button class="secondary" onclick="loadLetterQueue()">Refresh list</button>
       <div id="queueResult" class="result" style="display:none"></div>
@@ -582,7 +591,7 @@ function applyFormFields(f) {
   // showing on screen after a switch, which reads as belonging to whoever
   // is now active -- clear them all on every switch.
   ['patientResult', 'noteResult', 'decisionResult', 'codesResult', 'codesDecisionResult',
-   'gapsResult', 'orderResult', 'pendingItemsResult', 'letterResult', 'letterDecisionResult', 'letterSendResult',
+   'gapsResult', 'orderResult', 'pendingItemsResult', 'letterResult', 'letterDecisionResult', 'letterSendResult', 'letterVoidResult',
    'citationResult', 'ehrResult', 'complianceResult']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('draftStatus').textContent = '';
@@ -1094,6 +1103,7 @@ const SEND_METHODS = [
 const SEND_METHOD_LABELS = Object.fromEntries(SEND_METHODS);
 
 function letterBadgeHtml(status) {
+  if (status === 'voided') return '<span class="badge fail">voided</span>';
   if (status === 'sent') return '<span class="badge ok">sent</span>';
   if (status === 'ready_to_send') return '<span class="badge ok">ready to send</span>';
   return '<span class="badge draft">draft — needs review</span>';
@@ -1110,14 +1120,19 @@ function renderLetterState() {
     review.style.display = 'none';
     return;
   }
-  const approved = state.letterStatus === 'ready_to_send' || state.letterStatus === 'sent';
-  badge.innerHTML = letterBadgeHtml(state.letterStatus);
+  const s = state.letterStatus;
+  const approved = s === 'ready_to_send' || s === 'sent';
+  const voided = s === 'voided';
+  badge.innerHTML = letterBadgeHtml(s);
   review.style.display = 'block';
-  // An approved letter is closed server-side; lock the editor to match.
-  textEl.readOnly = approved;
-  approveBtn.disabled = approved;
-  document.getElementById('letterApproveHint').style.display = approved ? 'none' : 'block';
+  // Approved and voided letters are closed server-side; lock the editor to match.
+  textEl.readOnly = approved || voided;
+  approveBtn.disabled = approved || voided;
+  document.getElementById('letterApproveHint').style.display = (approved || voided) ? 'none' : 'block';
   actions.style.display = approved ? 'block' : 'none';
+  // Only letters that haven't left can be voided.
+  document.getElementById('letterVoidControls').style.display =
+    (s === 'draft' || s === 'ready_to_send') ? 'block' : 'none';
   document.getElementById('letterSendControls').style.display =
     state.letterStatus === 'sent' ? 'none' : 'flex';
 }
@@ -1163,6 +1178,37 @@ async function markLetterSent(letterId, sentBy, sendMethod) {
   return data;
 }
 
+async function voidLetter(letterId, voidedBy, reason) {
+  const data = await callTool('void_referral_letter', {
+    letter_id: letterId, voided_by: voidedBy, void_reason: reason,
+  });
+  if (data.letter_id === state.letterId) {
+    state.letterStatus = data.status;
+    renderLetterState();
+  }
+  return data;
+}
+
+async function voidActiveLetter() {
+  const voidedBy = document.getElementById('referringClinician').value.trim();
+  const reason = document.getElementById('letterVoidReason').value.trim();
+  if (!voidedBy || !reason) {
+    showResult('letterVoidResult', false, 'Enter your name in "Referring clinician" and a reason for voiding first.');
+    return;
+  }
+  if (!confirm('Void this letter? It can never be approved or sent afterwards.')) return;
+  try {
+    const data = await voidLetter(state.letterId, voidedBy, reason);
+    showResult('letterVoidResult', true, {
+      status: data.status, voided_by: data.voided_by, void_reason: data.void_reason, voided_at: data.voided_at,
+    });
+    document.getElementById('letterVoidReason').value = '';
+    if (document.getElementById('queueList').childElementCount) loadLetterQueue();
+  } catch (e) {
+    showResult('letterVoidResult', false, e.message);
+  }
+}
+
 async function markActiveLetterSent() {
   const sentBy = document.getElementById('referringClinician').value.trim();
   if (!sentBy) {
@@ -1206,6 +1252,8 @@ function addQueueRow(letter) {
   let detail = `approved ${(letter.approved_at || '').slice(0, 16).replace('T', ' ')} by ${letter.approved_by || '—'}`;
   if (letter.status === 'sent') {
     detail = `sent ${(letter.sent_at || '').slice(0, 16).replace('T', ' ')} · ${SEND_METHOD_LABELS[letter.send_method] || letter.send_method} · by ${letter.sent_by}`;
+  } else if (letter.status === 'voided') {
+    detail = `voided ${(letter.voided_at || '').slice(0, 16).replace('T', ' ')} by ${letter.voided_by} — ${letter.void_reason}`;
   } else if (letter.status === 'draft') {
     detail = 'draft — not yet approved';
   }
@@ -1219,7 +1267,7 @@ function addQueueRow(letter) {
   `;
   const actions = row.querySelector('.queue-actions');
   const resultEl = row.querySelector('.result');
-  if (letter.status !== 'draft') {
+  if (letter.status === 'ready_to_send' || letter.status === 'sent') {
     const printBtn = document.createElement('button');
     printBtn.className = 'secondary';
     printBtn.textContent = 'Print';
@@ -1256,6 +1304,36 @@ function addQueueRow(letter) {
       }
     };
     actions.append(select, sendBtn);
+  }
+  if (letter.status === 'draft' || letter.status === 'ready_to_send') {
+    const reasonInput = document.createElement('input');
+    reasonInput.type = 'text';
+    reasonInput.placeholder = 'Reason to void (e.g. wrong patient)';
+    reasonInput.style.cssText = 'flex:1; min-width:200px; margin:0;';
+    const voidBtn = document.createElement('button');
+    voidBtn.className = 'secondary';
+    voidBtn.textContent = 'Void';
+    voidBtn.onclick = async () => {
+      const voidedBy = document.getElementById('queueSentBy').value.trim();
+      const reason = reasonInput.value.trim();
+      resultEl.style.display = 'block';
+      if (!voidedBy || !reason) {
+        resultEl.className = 'result error';
+        resultEl.textContent = 'Enter "Your name" above and a reason to void first.';
+        return;
+      }
+      if (!confirm('Void this letter? It can never be approved or sent afterwards.')) return;
+      try {
+        const data = await voidLetter(letter.letter_id, voidedBy, reason);
+        resultEl.className = 'result';
+        resultEl.textContent = `Voided by ${data.voided_by}: ${data.void_reason}`;
+        actions.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
+      } catch (e) {
+        resultEl.className = 'result error';
+        resultEl.textContent = e.message;
+      }
+    };
+    actions.append(reasonInput, voidBtn);
   }
   document.getElementById('queueList').appendChild(row);
 }
