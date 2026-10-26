@@ -3,13 +3,13 @@
   "project": "MeshMedic",
   "totals": {
     "stories_total": 13,
-    "stories_verified": 9,
+    "stories_verified": 12,
     "stories_submitted": 0,
-    "stories_in_progress": 4,
+    "stories_in_progress": 1,
     "stories_not_started": 0,
     "criteria_total": 41,
-    "criteria_passed": 29,
-    "points_awarded": 558
+    "criteria_passed": 38,
+    "points_awarded": 744
   },
   "stories": [
     {
@@ -438,19 +438,15 @@
       "notes": "documentation_time_seconds (elapsed time from generate_note to the approve_note/reject_note decision, REQ-012) is computed in approve_encounter_note and reject_encounter_note, written into that decision's audit-trail entry, and returned on the response along with exceeded_target and, once the 2-minute target is exceeded, a fixed suggestions list. Idempotent replay reuses the stored duration rather than recomputing against a new 'now'.",
       "updated_at": "2026-09-11T20:30:00Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
+        "verified_at": "2026-09-11T20:26:22.439Z",
         "commit_sha": "a876b06ac5203faae58d68b0e4f8b4c2474c413b",
         "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/a876b06ac5203faae58d68b0e4f8b4c2474c413b",
         "commit_at": "2026-09-11T20:07:31Z",
-        "points_awarded": null,
-        "outstanding": [
-          "Given a patient encounter, when the AI generates a note, then the review time is under 2 minutes.",
-          "Given a note review, when it exceeds 2 minutes, then the system provides suggestions to speed up the process.",
-          "Trust: The system must log documentation time for each encounter."
-        ]
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -492,19 +488,15 @@
       "notes": "\"Meets all relevant standards\" names no specific external standard anywhere in this project's docs, so this is scoped (agreed with user) as an internal, code-checkable control checklist rather than a certification claim: run_compliance_check() replays audit_log.jsonl against 4 named controls -- audit completeness (REQ-006), single-decision integrity (REQ-014), security-incident logging completeness (REQ-011), and a static no-PHI-in-structured-logs scan (REQ-011, added after user review to close a flagged scope gap) -- and writes its own compliance_check audit entry. \"Unauthorized access\" is scoped to this server's one real access boundary (read_transcript_file's roots guard against path traversal); its denial audit entry carries an explicit security_incident:true tag rather than being inferred from error_class alone, so it can't be confused with unrelated AccessDenied business-rule conflicts elsewhere in the file. Third failure path (\"system fails to log incidents\"): _append_audit_entry now catches OSError, logs it with a stable AuditLogWriteFailure error_class to the structured stderr stream, and re-raises ToolError rather than letting a caller report an action as done when its audit entry was never actually written. Verified end-to-end with a real manual run (not just pytest): generate+approve a note, trigger a genuine roots-guard denial, run run_compliance_check() over the real resulting audit_log.jsonl -- all 4 controls passed against real data.",
       "updated_at": "2026-09-11T21:45:00Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a compliance audit, when the system is reviewed, then it meets all relevant standards.",
-          "Given a security breach attempt, when the system detects it, then it prevents unauthorized access.",
-          "Trust: The system must log all compliance checks and security incidents."
-        ]
+        "verified_at": "2026-09-11T21:01:39.781Z",
+        "commit_sha": "d322f144b82985bef2a5ea6b43c83f5e9217c006",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/d322f144b82985bef2a5ea6b43c83f5e9217c006",
+        "commit_at": "2026-09-11T21:01:25Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
@@ -525,24 +517,29 @@
           "passed": true
         }
       ],
-      "files_touched": ["meshmedic-mcp/referral_letters.py", "meshmedic-mcp/server.py", "meshmedic-mcp/tests/test_referral_letters.py", "docs/stories/STORY-011.md", "PROGRESS.md", ".colaberry/progress.json"],
-      "tests_added": ["tests/test_referral_letters.py: 26 tests -- generate from approved encounter (happy path, uses clinician-edited note text), failure paths (unknown note, unapproved draft, rejected note, unresolvable patient, real audit-write failure on generate and on approve), input-contract boundaries, idempotent generate and approve, approve -> ready_to_send, locked after approval, audit entries for creation+approval, compliance controls catch orphaned and double approvals"],
+      "files_touched": [
+        "meshmedic-mcp/referral_letters.py",
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_referral_letters.py",
+        "docs/stories/STORY-011.md",
+        "PROGRESS.md",
+        ".colaberry/progress.json"
+      ],
+      "tests_added": [
+        "tests/test_referral_letters.py: 26 tests -- generate from approved encounter (happy path, uses clinician-edited note text), failure paths (unknown note, unapproved draft, rejected note, unresolvable patient, real audit-write failure on generate and on approve), input-contract boundaries, idempotent generate and approve, approve -> ready_to_send, locked after approval, audit entries for creation+approval, compliance controls catch orphaned and double approvals"
+      ],
       "notes": "generate_referral_letter builds a deterministic draft from a clinician-approved encounter note; approve_referral_letter marks it ready_to_send. Both actions are written to audit_log.jsonl and covered by the REQ-006/REQ-014 compliance controls. Verified with pytest (136 passed) and a live MCP stdio round-trip against an isolated server copy. Session CC-20261026-k7m2.",
       "updated_at": "2026-10-26T20:30:00Z",
       "verification": {
-        "state": "in_progress",
-        "criteria_passed": 0,
+        "state": "verified",
+        "criteria_passed": 3,
         "criteria_total": 3,
-        "verified_at": null,
-        "commit_sha": null,
-        "commit_url": null,
-        "commit_at": null,
-        "points_awarded": null,
-        "outstanding": [
-          "Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.",
-          "Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.",
-          "Trust: The system logs the creation and approval of each referral letter for audit purposes."
-        ]
+        "verified_at": "2026-10-26T20:22:01.956Z",
+        "commit_sha": "4794e154a4f4311f4f08d23633d5913414d56e7f",
+        "commit_url": "https://github.com/HellenMuhonjaData/MeshMedic/commit/4794e154a4f4311f4f08d23633d5913414d56e7f",
+        "commit_at": "2026-10-26T20:21:34Z",
+        "points_awarded": 62,
+        "outstanding": []
       }
     },
     {
