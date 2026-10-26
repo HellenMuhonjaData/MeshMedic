@@ -514,21 +514,21 @@
       "criteria": [
         {
           "text": "Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs the creation and approval of each referral letter for audit purposes.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": ["meshmedic-mcp/referral_letters.py", "meshmedic-mcp/server.py", "meshmedic-mcp/tests/test_referral_letters.py", "docs/stories/STORY-011.md", "PROGRESS.md", ".colaberry/progress.json"],
+      "tests_added": ["tests/test_referral_letters.py: 26 tests -- generate from approved encounter (happy path, uses clinician-edited note text), failure paths (unknown note, unapproved draft, rejected note, unresolvable patient, real audit-write failure on generate and on approve), input-contract boundaries, idempotent generate and approve, approve -> ready_to_send, locked after approval, audit entries for creation+approval, compliance controls catch orphaned and double approvals"],
+      "notes": "generate_referral_letter builds a deterministic draft from a clinician-approved encounter note; approve_referral_letter marks it ready_to_send. Both actions are written to audit_log.jsonl and covered by the REQ-006/REQ-014 compliance controls. Verified with pytest (136 passed) and a live MCP stdio round-trip against an isolated server copy. Session CC-20261026-k7m2.",
+      "updated_at": "2026-10-26T20:30:00Z",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

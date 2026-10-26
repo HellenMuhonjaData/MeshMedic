@@ -27,8 +27,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [ ] Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.
-- [ ] Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.
-- [ ] Trust: The system logs the creation and approval of each referral letter for audit purposes.
+- [x] Given a completed patient encounter, when the system generates follow-up documentation, then the clinician can review and approve the referral letter.
+- [x] Given a clinician has reviewed a referral letter, when they approve it, then the system marks it as ready to send.
+- [x] Trust: The system logs the creation and approval of each referral letter for audit purposes.
 
 When every box above is ticked, stop and show the demo.

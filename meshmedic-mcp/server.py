@@ -13,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, TextContent
 from pydantic import BaseModel, Field
 
+import referral_letters
 from epic_fhir_client import EpicFHIRError, fetch_patient
 from github_client import GitHubAPIError, get_issue_or_pr
 from logging_utils import (
@@ -28,6 +29,13 @@ from logging_utils import (
     new_correlation_id,
 )
 from progress_utils import emit_progress
+from referral_letters import (
+    ClinicianField,
+    MissingEncounterData,
+    ReasonField,
+    ReferralLetter,
+    SpecialtyField,
+)
 from roots_guard import resolve_within_roots
 from sample_patients import SAMPLE_PATIENTS
 
@@ -2606,6 +2614,193 @@ def get_pending_items_for_patient(
     )
 
 
+def _referral_tool_error(
+    tool: str, correlation_id: str, error_class: str, message: str
+) -> ToolError:
+    log_event(
+        _logger, "warning", TOOL_ERROR, correlation_id, tool=tool, error_class=error_class
+    )
+    return ToolError(message)
+
+
+@mcp.tool()
+def generate_referral_letter(
+    note_id: Annotated[str, Field(min_length=1)],
+    specialty: SpecialtyField,
+    referral_reason: ReasonField,
+    referring_clinician: ClinicianField,
+) -> ReferralLetter:
+    """
+    Prepare a referral letter from a completed encounter for clinician review
+    (REQ-004 / STORY-011). "Completed" means the encounter note has been
+    approved via approve_encounter_note -- the letter is built from that
+    approved text plus the patient's identity, never from an unreviewed draft.
+
+    The letter is drafted deterministically by this server (see
+    referral_letters.render_letter) and returned as status="draft". It is not
+    ready to send until a clinician reviews it and calls
+    approve_referral_letter. The creation is recorded in the audit trail.
+
+    Idempotent: calling again with the same note_id, specialty and
+    referral_reason returns the existing letter (draft or approved) instead
+    of creating a duplicate. Raises ToolError if the note is missing, not yet
+    approved, rejected, or its patient can't be resolved.
+    """
+    tool = "generate_referral_letter"
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, note_id=note_id
+    )
+
+    try:
+        approved_note = referral_letters.completed_encounter(
+            _find_note(note_id), note_id
+        )
+    except MissingEncounterData as e:
+        raise _referral_tool_error(
+            tool, correlation_id, "MissingEncounterData", str(e)
+        ) from e
+    patient = _find_patient(approved_note["ehr_system"], approved_note["patient_id"])
+    if patient is None:
+        raise _referral_tool_error(
+            tool,
+            correlation_id,
+            "MissingEncounterData",
+            f"Patient {approved_note['patient_id']!r} for note_id={note_id!r} could not "
+            "be resolved; the letter needs the patient's identity.",
+        )
+
+    entries = _all_audit_entries()
+    existing_id = referral_letters.existing_letter_id(
+        entries, note_id, specialty, referral_reason
+    )
+    if existing_id is not None:
+        letter = referral_letters.find_letter(entries, existing_id)
+        log_event(
+            _logger,
+            "info",
+            TOOL_COMPLETED,
+            correlation_id,
+            tool=tool,
+            letter_id=existing_id,
+            outcome="success",
+            no_op=True,
+        )
+        return letter
+
+    letter_id = str(uuid.uuid4())
+    letter_text = referral_letters.render_letter(
+        patient, approved_note, specialty, referral_reason, referring_clinician
+    )
+    entry = referral_letters.generate_entry(
+        letter_id,
+        datetime.now(timezone.utc).isoformat(),
+        approved_note,
+        specialty,
+        referral_reason,
+        referring_clinician,
+        letter_text,
+    )
+    _append_audit_entry(entry)
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool=tool,
+        note_id=note_id,
+        letter_id=letter_id,
+        outcome="success",
+        no_op=False,
+    )
+    return referral_letters.find_letter([entry], letter_id)
+
+
+@mcp.tool()
+def approve_referral_letter(
+    letter_id: Annotated[str, Field(min_length=1)],
+    approved_by: ClinicianField,
+    edited_letter_text: Annotated[
+        str | None, Field(min_length=1, max_length=referral_letters.MAX_LETTER_CHARS)
+    ] = None,
+) -> ReferralLetter:
+    """
+    Record a clinician's approval of a reviewed referral letter, marking it
+    status="ready_to_send" (STORY-011). Pass `edited_letter_text` if the
+    clinician changed the draft during review; otherwise the drafted text is
+    approved as-is. The approval (who, when, final text, whether it was
+    edited) is recorded in the audit trail.
+
+    Approving again with the same final text is a no-op returning the
+    existing approval. Approving an already-approved letter with different
+    text raises ToolError -- an approved letter is closed. If the audit write
+    fails, ToolError is raised and the letter stays a draft.
+    """
+    tool = "approve_referral_letter"
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, letter_id=letter_id
+    )
+
+    letter = referral_letters.find_letter(_all_audit_entries(), letter_id)
+    if letter is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool=tool,
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+
+    final_text = edited_letter_text if edited_letter_text is not None else letter.letter_text
+    if letter.status == "ready_to_send":
+        if final_text == letter.letter_text:
+            log_event(
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool=tool,
+                letter_id=letter_id,
+                outcome="success",
+                no_op=True,
+            )
+            return letter
+        log_event(
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool=tool,
+            letter_id=letter_id,
+            reason="letter_locked_after_approval",
+            error_class="AccessDenied",
+        )
+        raise ToolError(
+            f"letter_id={letter_id!r} is already approved and ready to send; "
+            "it can no longer be changed."
+        )
+
+    entry = referral_letters.approve_entry(
+        letter, datetime.now(timezone.utc).isoformat(), approved_by, final_text
+    )
+    _append_audit_entry(entry)
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool=tool,
+        letter_id=letter_id,
+        outcome="success",
+        no_op=False,
+        edited=entry["edited"],
+    )
+    return referral_letters.find_letter(_all_audit_entries(), letter_id)
+
+
 def _find_citation(
     transcript: str, claimed_excerpt: str
 ) -> tuple[int, int, str] | None:
@@ -2960,6 +3155,8 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
             drafted.add(("suggestion", entry["suggestion_id"]))
         elif entry["action"] == "identify_care_gap":
             drafted.add(("gap", entry["gap_id"]))
+        elif entry["action"] == referral_letters.GENERATE_ACTION:
+            drafted.add(("letter", entry["letter_id"]))
 
     orphaned: list[str] = []
     for entry in entries:
@@ -2982,13 +3179,21 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
             orphaned.append(
                 f"address_care_gap for gap_id={entry['gap_id']!r} has no identify_care_gap entry"
             )
+        elif (
+            action == referral_letters.APPROVE_ACTION
+            and ("letter", entry["letter_id"]) not in drafted
+        ):
+            orphaned.append(
+                f"{action} for letter_id={entry['letter_id']!r} has no "
+                f"{referral_letters.GENERATE_ACTION} entry"
+            )
 
     passed = not orphaned
     return ComplianceControlResult(
         control_id="REQ-006-audit-completeness",
         description=(
             "Every clinician decision (approve/reject a note or code set, address a care "
-            "gap) in the audit trail has a matching AI-drafted entry."
+            "gap, approve a referral letter) in the audit trail has a matching drafted entry."
         ),
         passed=passed,
         detail="No orphaned decisions found." if passed else "; ".join(orphaned),
@@ -3004,6 +3209,7 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
     the persisted log rather than trusting the code path alone."""
     note_decisions: dict[str, int] = {}
     suggestion_decisions: dict[str, int] = {}
+    letter_decisions: dict[str, int] = {}
     for entry in entries:
         action = entry["action"]
         if action in ("approve_note", "reject_note"):
@@ -3013,6 +3219,10 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         elif action in ("approve_codes", "reject_codes"):
             suggestion_decisions[entry["suggestion_id"]] = (
                 suggestion_decisions.get(entry["suggestion_id"], 0) + 1
+            )
+        elif action == referral_letters.APPROVE_ACTION:
+            letter_decisions[entry["letter_id"]] = (
+                letter_decisions.get(entry["letter_id"], 0) + 1
             )
 
     violations = [
@@ -3025,13 +3235,18 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         for suggestion_id, count in suggestion_decisions.items()
         if count > 1
     ]
+    violations += [
+        f"letter_id={letter_id!r} has {count} approvals"
+        for letter_id, count in letter_decisions.items()
+        if count > 1
+    ]
 
     passed = not violations
     return ComplianceControlResult(
         control_id="REQ-014-single-decision-integrity",
-        description="No note or code-suggestion set has more than one recorded clinician decision.",
+        description="No note, code-suggestion set, or referral letter has more than one recorded clinician decision.",
         passed=passed,
-        detail="Every note and suggestion set has at most one decision."
+        detail="Every note, suggestion set, and referral letter has at most one decision."
         if passed
         else "; ".join(violations),
     )
@@ -3097,6 +3312,9 @@ FORBIDDEN_LOG_CONTEXT_KEYS = frozenset(
         "resolution",
         "description",
         "ranking_text",
+        "letter_text",
+        "edited_letter_text",
+        "referral_reason",
     }
 )
 
