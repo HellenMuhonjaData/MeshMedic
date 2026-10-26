@@ -31,9 +31,12 @@ from logging_utils import (
 from progress_utils import emit_progress
 from referral_letters import (
     ClinicianField,
+    LetterStatus,
     MissingEncounterData,
     ReasonField,
     ReferralLetter,
+    ReferralLetterList,
+    SendMethod,
     SpecialtyField,
 )
 from roots_guard import resolve_within_roots
@@ -2755,7 +2758,7 @@ def approve_referral_letter(
         raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
 
     final_text = edited_letter_text if edited_letter_text is not None else letter.letter_text
-    if letter.status == "ready_to_send":
+    if letter.status != "draft":
         if final_text == letter.letter_text:
             log_event(
                 _logger,
@@ -2779,7 +2782,7 @@ def approve_referral_letter(
             error_class="AccessDenied",
         )
         raise ToolError(
-            f"letter_id={letter_id!r} is already approved and ready to send; "
+            f"letter_id={letter_id!r} is already approved ({letter.status}); "
             "it can no longer be changed."
         )
 
@@ -2797,6 +2800,129 @@ def approve_referral_letter(
         outcome="success",
         no_op=False,
         edited=entry["edited"],
+    )
+    return referral_letters.find_letter(_all_audit_entries(), letter_id)
+
+
+@mcp.tool()
+def list_referral_letters(
+    status: LetterStatus | None = None,
+    patient_id: Annotated[str | None, Field(min_length=1)] = None,
+) -> ReferralLetterList:
+    """
+    List referral letters from the audit trail, oldest first, optionally
+    filtered by status and/or patient_id. status="ready_to_send" is the
+    queue of approved letters that have not been sent yet -- use it to find a
+    letter again after the encounter is closed. Read-only: writes no audit
+    entry.
+    """
+    tool = "list_referral_letters"
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, status=status
+    )
+    letters = referral_letters.list_letters(_all_audit_entries(), status, patient_id)
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool=tool,
+        outcome="success",
+        count=len(letters),
+    )
+    return ReferralLetterList(
+        letters=letters,
+        count=len(letters),
+        listed_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@mcp.tool()
+def mark_referral_letter_sent(
+    letter_id: Annotated[str, Field(min_length=1)],
+    sent_by: ClinicianField,
+    send_method: SendMethod,
+) -> ReferralLetter:
+    """
+    Record that an approved referral letter was delivered, and how
+    (handed to the patient, mailed, faxed, ...). This server does not deliver
+    the letter itself -- the clinician prints/downloads it and sends it; this
+    records that it left, closing the ready_to_send queue entry in the audit
+    trail.
+
+    Only a ready_to_send letter can be marked sent: a draft raises ToolError
+    (approve it first). Marking an already-sent letter again with the same
+    send_method is a no-op returning the existing record; a different
+    send_method raises ToolError -- a letter is sent once.
+    """
+    tool = "mark_referral_letter_sent"
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, letter_id=letter_id
+    )
+
+    letter = referral_letters.find_letter(_all_audit_entries(), letter_id)
+    if letter is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool=tool,
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+    if letter.status == "draft":
+        raise _referral_tool_error(
+            tool,
+            correlation_id,
+            "ValidationError",
+            f"letter_id={letter_id!r} is still a draft; a clinician must approve it "
+            "before it can be marked sent.",
+        )
+    if letter.status == "sent":
+        if letter.send_method == send_method:
+            log_event(
+                _logger,
+                "info",
+                TOOL_COMPLETED,
+                correlation_id,
+                tool=tool,
+                letter_id=letter_id,
+                outcome="success",
+                no_op=True,
+            )
+            return letter
+        log_event(
+            _logger,
+            "warning",
+            ACCESS_DENIED,
+            correlation_id,
+            tool=tool,
+            letter_id=letter_id,
+            reason="letter_already_sent",
+            error_class="AccessDenied",
+        )
+        raise ToolError(
+            f"letter_id={letter_id!r} was already marked sent via {letter.send_method!r}; "
+            "a letter is sent once."
+        )
+
+    entry = referral_letters.send_entry(
+        letter, datetime.now(timezone.utc).isoformat(), sent_by, send_method
+    )
+    _append_audit_entry(entry)
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool=tool,
+        letter_id=letter_id,
+        send_method=send_method,
+        outcome="success",
+        no_op=False,
     )
     return referral_letters.find_letter(_all_audit_entries(), letter_id)
 
@@ -3157,6 +3283,8 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
             drafted.add(("gap", entry["gap_id"]))
         elif entry["action"] == referral_letters.GENERATE_ACTION:
             drafted.add(("letter", entry["letter_id"]))
+        elif entry["action"] == referral_letters.APPROVE_ACTION:
+            drafted.add(("approved_letter", entry["letter_id"]))
 
     orphaned: list[str] = []
     for entry in entries:
@@ -3187,6 +3315,14 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
                 f"{action} for letter_id={entry['letter_id']!r} has no "
                 f"{referral_letters.GENERATE_ACTION} entry"
             )
+        elif (
+            action == referral_letters.SEND_ACTION
+            and ("approved_letter", entry["letter_id"]) not in drafted
+        ):
+            orphaned.append(
+                f"{action} for letter_id={entry['letter_id']!r} has no "
+                f"{referral_letters.APPROVE_ACTION} entry"
+            )
 
     passed = not orphaned
     return ComplianceControlResult(
@@ -3210,6 +3346,7 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
     note_decisions: dict[str, int] = {}
     suggestion_decisions: dict[str, int] = {}
     letter_decisions: dict[str, int] = {}
+    letter_sends: dict[str, int] = {}
     for entry in entries:
         action = entry["action"]
         if action in ("approve_note", "reject_note"):
@@ -3223,6 +3360,10 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
         elif action == referral_letters.APPROVE_ACTION:
             letter_decisions[entry["letter_id"]] = (
                 letter_decisions.get(entry["letter_id"], 0) + 1
+            )
+        elif action == referral_letters.SEND_ACTION:
+            letter_sends[entry["letter_id"]] = (
+                letter_sends.get(entry["letter_id"], 0) + 1
             )
 
     violations = [
@@ -3238,6 +3379,11 @@ def _check_single_decision_integrity(entries: list[dict]) -> ComplianceControlRe
     violations += [
         f"letter_id={letter_id!r} has {count} approvals"
         for letter_id, count in letter_decisions.items()
+        if count > 1
+    ]
+    violations += [
+        f"letter_id={letter_id!r} was marked sent {count} times"
+        for letter_id, count in letter_sends.items()
         if count > 1
     ]
 

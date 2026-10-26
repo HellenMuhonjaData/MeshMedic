@@ -314,7 +314,54 @@
     </div>
 
     <div class="card">
-      <h2><span class="step">6</span> Citation check</h2>
+      <h2><span class="step">6</span> Referral letter <span id="letterBadge"></span></h2>
+      <p class="hint">generate_referral_letter / approve_referral_letter — drafted from the <em>approved</em> encounter note. Review and edit it, then approve to mark it ready to send. Both steps are written to the audit trail.</p>
+      <div class="row">
+        <div><label>Refer to (specialty)</label><input type="text" id="referralSpecialty" placeholder="Cardiology" /></div>
+        <div><label>Referring clinician</label><input type="text" id="referringClinician" placeholder="Dr. A. Rivera" /></div>
+      </div>
+      <label>Reason for referral</label>
+      <textarea id="referralReason" placeholder="e.g. Evaluate exertional chest tightness"></textarea>
+      <button onclick="prepareReferralLetter()">Prepare referral letter</button>
+      <div id="letterResult" class="result" style="display:none"></div>
+      <div id="letterReview" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+        <label>Letter — review and edit before approving</label>
+        <textarea id="letterText" style="min-height:280px; font-family:inherit;"></textarea>
+        <button id="approveLetterBtn" onclick="approveReferralLetter()">Approve — mark ready to send</button>
+        <div id="letterDecisionResult" class="result" style="display:none"></div>
+        <div id="letterActions" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+          <p class="hint" style="margin-top:0">MeshMedic doesn't deliver letters. Print or download it, send it yourself, then record how it went out.</p>
+          <button class="secondary" onclick="printLetter(document.getElementById('letterText').value)">Print</button>
+          <button class="secondary" onclick="downloadLetter(document.getElementById('letterText').value, state.letterId, document.getElementById('referralSpecialty').value)">Download .txt</button>
+          <div id="letterSendControls" class="plus-row" style="align-items:center">
+            <div style="flex:0 0 220px"><label>Sent via</label><select id="letterSendMethod" class="send-method"></select></div>
+            <button id="markSentBtn" onclick="markActiveLetterSent()" style="margin-top:18px">Mark as sent</button>
+          </div>
+          <div id="letterSendResult" class="result" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Letters ready to send <span class="small">(all patients)</span></h2>
+      <p class="hint">list_referral_letters / mark_referral_letter_sent — every approved letter not yet sent, across all patients, so nothing approved gets forgotten once its encounter is closed.</p>
+      <div class="row">
+        <div><label>Show</label>
+          <select id="queueFilter" onchange="loadLetterQueue()">
+            <option value="ready_to_send">Ready to send</option>
+            <option value="sent">Sent</option>
+            <option value="">All letters</option>
+          </select>
+        </div>
+        <div><label>Sent by (recorded when you mark a letter sent)</label><input type="text" id="queueSentBy" placeholder="Dr. A. Rivera" /></div>
+      </div>
+      <button class="secondary" onclick="loadLetterQueue()">Refresh list</button>
+      <div id="queueResult" class="result" style="display:none"></div>
+      <div id="queueList"></div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">7</span> Citation check</h2>
       <p class="hint">request_citation — proves a claimed excerpt genuinely appears in the transcript, or says honestly that it doesn't.</p>
       <label>Claimed excerpt</label>
       <input type="text" id="claimedExcerpt" placeholder="Text you believe supports a recommendation…" />
@@ -323,7 +370,7 @@
     </div>
 
     <div class="card">
-      <h2><span class="step">7</span> EHR fetch (live)</h2>
+      <h2><span class="step">8</span> EHR fetch (live)</h2>
       <p class="hint">fetch_patient_from_ehr — a real network call: JWT-signed OAuth2 token exchange, then a FHIR Patient.Read against Epic's sandbox.</p>
       <div class="row">
         <div><label>EHR system</label><select id="fetchEhr"><option value="epic">epic</option><option value="oracle_health">oracle_health</option></select></div>
@@ -334,7 +381,7 @@
     </div>
 
     <div class="card">
-      <h2><span class="step">8</span> Compliance check</h2>
+      <h2><span class="step">9</span> Compliance check</h2>
       <p class="hint">run_compliance_check — replays the audit trail this session just produced against four named controls.</p>
       <button onclick="runCompliance()">Run compliance check</button>
       <div id="complianceResult" class="result" style="display:none"></div>
@@ -356,7 +403,7 @@
 // patient's text into another's -- there's no shared field left to leak
 // into. saveActiveSession()/loadSession() move data between `state`+the DOM
 // and a session snapshot; every other function is unchanged.
-const state = { patientId: null, ehrSystem: 'epic', noteId: null, suggestionId: null };
+const state = { patientId: null, ehrSystem: 'epic', noteId: null, suggestionId: null, letterId: null, letterStatus: null };
 const sessions = new Map(); // patient_id -> session snapshot
 let activeSessionKey = null; // patient_id of the active session, or null before any patient is selected
 
@@ -415,6 +462,10 @@ function prefillSample() {
     "Clinician: I'm going to start you on lisinopril 10mg daily and have you recheck your blood pressure in two weeks. You're also overdue for your annual A1c -- let's get that drawn today.";
   document.getElementById('noteText').value =
     "Patient presents with two-week history of afternoon headaches and elevated home blood pressure readings (avg 150/95). Denies chest pain, vision changes, dyspnea. Assessment: likely uncontrolled hypertension. Plan: start lisinopril 10mg daily, recheck BP in 2 weeks, draw A1c today (overdue for annual screening).";
+  document.getElementById('referralSpecialty').value = 'Cardiology';
+  document.getElementById('referringClinician').value = 'Dr. A. Rivera';
+  document.getElementById('referralReason').value =
+    'Evaluate newly identified uncontrolled hypertension with persistent headaches; please assess for secondary causes and advise on management.';
 }
 
 async function searchPatient() {
@@ -471,6 +522,7 @@ function blankFormFields() {
     codesDecisionVisible: false,
     gapDesc: '', gapConfidence: '0.9', gapConfidenceReason: '',
     orderTestName: '', orderReason: '',
+    referralSpecialty: '', referringClinician: '', referralReason: '', letterText: '',
     claimedExcerpt: '',
   };
 }
@@ -494,6 +546,10 @@ function captureFormFields() {
     gapConfidenceReason: document.getElementById('gapConfidenceReason').value,
     orderTestName: document.getElementById('orderTestName').value,
     orderReason: document.getElementById('orderReason').value,
+    referralSpecialty: document.getElementById('referralSpecialty').value,
+    referringClinician: document.getElementById('referringClinician').value,
+    referralReason: document.getElementById('referralReason').value,
+    letterText: document.getElementById('letterText').value,
     claimedExcerpt: document.getElementById('claimedExcerpt').value,
   };
 }
@@ -516,12 +572,17 @@ function applyFormFields(f) {
   document.getElementById('gapConfidenceReason').value = f.gapConfidenceReason || '';
   document.getElementById('orderTestName').value = f.orderTestName || '';
   document.getElementById('orderReason').value = f.orderReason || '';
+  document.getElementById('referralSpecialty').value = f.referralSpecialty || '';
+  document.getElementById('referringClinician').value = f.referringClinician || '';
+  document.getElementById('referralReason').value = f.referralReason || '';
+  document.getElementById('letterText').value = f.letterText || '';
   document.getElementById('claimedExcerpt').value = f.claimedExcerpt || '';
   // Stale result panels from a different encounter would otherwise still be
   // showing on screen after a switch, which reads as belonging to whoever
   // is now active -- clear them all on every switch.
   ['patientResult', 'noteResult', 'decisionResult', 'codesResult', 'codesDecisionResult',
-   'gapsResult', 'orderResult', 'pendingItemsResult', 'citationResult', 'ehrResult', 'complianceResult']
+   'gapsResult', 'orderResult', 'pendingItemsResult', 'letterResult', 'letterDecisionResult', 'letterSendResult',
+   'citationResult', 'ehrResult', 'complianceResult']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('draftStatus').textContent = '';
   document.getElementById('transcribeStatus').textContent =
@@ -535,6 +596,8 @@ function saveActiveSession() {
   Object.assign(session, captureFormFields());
   session.noteId = state.noteId;
   session.suggestionId = state.suggestionId;
+  session.letterId = state.letterId;
+  session.letterStatus = state.letterStatus;
   session.ehrSystem = state.ehrSystem;
   session.lastActivity = Date.now();
 }
@@ -562,6 +625,9 @@ function loadSession(key) {
   state.ehrSystem = session.ehrSystem;
   state.noteId = session.noteId;
   state.suggestionId = session.suggestionId;
+  state.letterId = session.letterId || null;
+  state.letterStatus = session.letterStatus || null;
+  renderLetterState();
   document.getElementById('activePatient').textContent = session.patientId || 'none';
   document.getElementById('activeNote').textContent = session.noteId || 'none';
   document.getElementById('activeNoteMini').textContent = session.noteId || 'none';
@@ -588,6 +654,9 @@ function closeSession(key) {
     state.patientId = null;
     state.noteId = null;
     state.suggestionId = null;
+    state.letterId = null;
+    state.letterStatus = null;
+    renderLetterState();
     document.getElementById('activePatient').textContent = 'none';
     document.getElementById('activeNote').textContent = 'none';
     document.getElementById('activeNoteMini').textContent = 'none';
@@ -639,7 +708,7 @@ function selectPatient(match, ehrSystem) {
     const seed = wasScratch ? captureFormFields() : blankFormFields();
     sessions.set(patientId, {
       patientId, ehrSystem, label,
-      noteId: null, suggestionId: null, gaps: [], orders: [],
+      noteId: null, suggestionId: null, letterId: null, letterStatus: null, gaps: [], orders: [],
       ...seed,
     });
   } else {
@@ -809,6 +878,12 @@ async function draftNoteWithAI() {
 }
 
 async function generateNote() {
+  // Never fall back to a default patient: a note filed under the wrong
+  // chart is worse than no note at all.
+  if (!state.patientId) {
+    showResult('noteResult', false, 'No active patient. Search and select the patient in step 1 first.');
+    return;
+  }
   const transcript = document.getElementById('transcript').value;
   const noteText = document.getElementById('noteText').value;
   if (!transcript.trim()) {
@@ -822,7 +897,7 @@ async function generateNote() {
   const confidence = parseFloat(document.getElementById('confidence').value);
   const args = {
     ehr_system: state.ehrSystem,
-    patient_id: state.patientId || 'epic-pt-10293847',
+    patient_id: state.patientId,
     transcript,
     note_text: noteText,
     confidence,
@@ -832,6 +907,12 @@ async function generateNote() {
   try {
     const data = await callTool('generate_encounter_note', args);
     state.noteId = data.note_id;
+    // A referral letter belongs to the note it was drafted from -- a new
+    // note starts with no letter.
+    state.letterId = null;
+    state.letterStatus = null;
+    document.getElementById('letterText').value = '';
+    renderLetterState();
     document.getElementById('activeNote').textContent = state.noteId;
     document.getElementById('activeNoteMini').textContent = state.noteId;
     document.getElementById('editedNoteText').value = data.note_text || '';
@@ -999,6 +1080,243 @@ async function loadPendingItems() {
   }
 }
 
+// The letter panel is driven entirely by state.letterId/letterStatus, so a
+// session switch (loadSession) or close re-renders it for whoever is active.
+const SEND_METHODS = [
+  ['handed_to_patient', 'Handed to patient'],
+  ['mail', 'Mailed'],
+  ['fax', 'Faxed'],
+  ['email', 'Emailed (outside MeshMedic)'],
+  ['patient_portal', 'Patient portal'],
+  ['other', 'Other'],
+];
+const SEND_METHOD_LABELS = Object.fromEntries(SEND_METHODS);
+
+function letterBadgeHtml(status) {
+  if (status === 'sent') return '<span class="badge ok">sent</span>';
+  if (status === 'ready_to_send') return '<span class="badge ok">ready to send</span>';
+  return '<span class="badge draft">draft — needs review</span>';
+}
+
+function renderLetterState() {
+  const badge = document.getElementById('letterBadge');
+  const review = document.getElementById('letterReview');
+  const textEl = document.getElementById('letterText');
+  const approveBtn = document.getElementById('approveLetterBtn');
+  const actions = document.getElementById('letterActions');
+  if (!state.letterId) {
+    badge.innerHTML = '';
+    review.style.display = 'none';
+    return;
+  }
+  const approved = state.letterStatus === 'ready_to_send' || state.letterStatus === 'sent';
+  badge.innerHTML = letterBadgeHtml(state.letterStatus);
+  review.style.display = 'block';
+  // An approved letter is closed server-side; lock the editor to match.
+  textEl.readOnly = approved;
+  approveBtn.disabled = approved;
+  actions.style.display = approved ? 'block' : 'none';
+  document.getElementById('letterSendControls').style.display =
+    state.letterStatus === 'sent' ? 'none' : 'flex';
+}
+
+function printLetter(text) {
+  const w = window.open('', '_blank');
+  if (!w) {
+    alert('The print window was blocked. Allow pop-ups for this page, or use Download instead.');
+    return;
+  }
+  w.document.write(
+    '<!doctype html><title>Referral letter</title>' +
+    '<pre style="font:14px/1.6 Georgia,serif; white-space:pre-wrap; max-width:7in; margin:0.75in auto;">' +
+    escapeHtml(text) + '</pre>'
+  );
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+function downloadLetter(text, letterId, specialty) {
+  // Filename carries the specialty and letter id only -- no patient name on disk.
+  const slug = (specialty || 'referral').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `referral-${slug}-${(letterId || '').slice(0, 8)}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+async function markLetterSent(letterId, sentBy, sendMethod) {
+  const data = await callTool('mark_referral_letter_sent', {
+    letter_id: letterId, sent_by: sentBy, send_method: sendMethod,
+  });
+  // Keep step 6 in sync if this is the letter open there.
+  if (data.letter_id === state.letterId) {
+    state.letterStatus = data.status;
+    renderLetterState();
+  }
+  return data;
+}
+
+async function markActiveLetterSent() {
+  const sentBy = document.getElementById('referringClinician').value.trim();
+  if (!sentBy) {
+    showResult('letterSendResult', false, 'Enter your name in "Referring clinician" first; it is recorded as who sent the letter.');
+    return;
+  }
+  try {
+    const data = await markLetterSent(state.letterId, sentBy, document.getElementById('letterSendMethod').value);
+    showResult('letterSendResult', true, {
+      status: data.status, send_method: data.send_method, sent_by: data.sent_by, sent_at: data.sent_at,
+    });
+    if (document.getElementById('queueList').childElementCount) loadLetterQueue();
+  } catch (e) {
+    showResult('letterSendResult', false, e.message);
+  }
+}
+
+async function loadLetterQueue() {
+  const status = document.getElementById('queueFilter').value;
+  const args = status ? { status } : {};
+  const list = document.getElementById('queueList');
+  try {
+    const data = await callTool('list_referral_letters', args);
+    list.innerHTML = '';
+    if (data.count === 0) {
+      showResult('queueResult', true, status === 'ready_to_send'
+        ? 'Nothing waiting — every approved letter has been sent.'
+        : 'No letters to show.');
+      return;
+    }
+    document.getElementById('queueResult').style.display = 'none';
+    data.letters.slice().reverse().forEach(addQueueRow);
+  } catch (e) {
+    showResult('queueResult', false, e.message);
+  }
+}
+
+function addQueueRow(letter) {
+  const row = document.createElement('div');
+  row.className = 'gap-row';
+  let detail = `approved ${(letter.approved_at || '').slice(0, 16).replace('T', ' ')} by ${letter.approved_by || '—'}`;
+  if (letter.status === 'sent') {
+    detail = `sent ${(letter.sent_at || '').slice(0, 16).replace('T', ' ')} · ${SEND_METHOD_LABELS[letter.send_method] || letter.send_method} · by ${letter.sent_by}`;
+  } else if (letter.status === 'draft') {
+    detail = 'draft — not yet approved';
+  }
+  row.innerHTML = `
+    <div class="meta">${letterBadgeHtml(letter.status)}
+      <strong>${escapeHtml(letter.specialty)}</strong>
+      <span class="id-pill">${escapeHtml(letter.patient_id)}</span>
+      <span class="small">${escapeHtml(detail)}</span></div>
+    <div class="queue-actions" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;"></div>
+    <div class="result" style="display:none"></div>
+  `;
+  const actions = row.querySelector('.queue-actions');
+  const resultEl = row.querySelector('.result');
+  if (letter.status !== 'draft') {
+    const printBtn = document.createElement('button');
+    printBtn.className = 'secondary';
+    printBtn.textContent = 'Print';
+    printBtn.onclick = () => printLetter(letter.letter_text);
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'secondary';
+    dlBtn.textContent = 'Download .txt';
+    dlBtn.onclick = () => downloadLetter(letter.letter_text, letter.letter_id, letter.specialty);
+    actions.append(printBtn, dlBtn);
+  }
+  if (letter.status === 'ready_to_send') {
+    const select = document.createElement('select');
+    select.style.width = '220px';
+    fillSendMethods(select);
+    const sendBtn = document.createElement('button');
+    sendBtn.textContent = 'Mark as sent';
+    sendBtn.onclick = async () => {
+      const sentBy = document.getElementById('queueSentBy').value.trim();
+      resultEl.style.display = 'block';
+      if (!sentBy) {
+        resultEl.className = 'result error';
+        resultEl.textContent = 'Enter "Sent by" above first; it is recorded with the delivery.';
+        return;
+      }
+      try {
+        const data = await markLetterSent(letter.letter_id, sentBy, select.value);
+        resultEl.className = 'result';
+        resultEl.textContent = `Recorded as sent (${SEND_METHOD_LABELS[data.send_method]}) by ${data.sent_by}.`;
+        sendBtn.disabled = true;
+        select.disabled = true;
+      } catch (e) {
+        resultEl.className = 'result error';
+        resultEl.textContent = e.message;
+      }
+    };
+    actions.append(select, sendBtn);
+  }
+  document.getElementById('queueList').appendChild(row);
+}
+
+function fillSendMethods(select) {
+  select.innerHTML = SEND_METHODS.map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+}
+
+async function prepareReferralLetter() {
+  if (!state.noteId) {
+    showResult('letterResult', false, 'No active encounter note. Generate and approve the note in step 2 first.');
+    return;
+  }
+  const specialty = document.getElementById('referralSpecialty').value.trim();
+  const reason = document.getElementById('referralReason').value.trim();
+  const clinician = document.getElementById('referringClinician').value.trim();
+  if (!specialty || !reason || !clinician) {
+    showResult('letterResult', false, 'Fill in specialty, reason for referral, and referring clinician first.');
+    return;
+  }
+  try {
+    const data = await callTool('generate_referral_letter', {
+      note_id: state.noteId, specialty, referral_reason: reason, referring_clinician: clinician,
+    });
+    state.letterId = data.letter_id;
+    state.letterStatus = data.status;
+    document.getElementById('letterText').value = data.letter_text;
+    showResult('letterResult', true, { letter_id: data.letter_id, status: data.status });
+    document.getElementById('letterDecisionResult').style.display = 'none';
+    renderLetterState();
+  } catch (e) {
+    showResult('letterResult', false, e.message);
+  }
+}
+
+async function approveReferralLetter() {
+  const clinician = document.getElementById('referringClinician').value.trim();
+  const text = document.getElementById('letterText').value;
+  if (!clinician) {
+    showResult('letterDecisionResult', false, 'Enter the approving clinician\'s name (Referring clinician) first.');
+    return;
+  }
+  if (!text.trim()) {
+    showResult('letterDecisionResult', false, 'The letter is empty; prepare it again or restore its text before approving.');
+    return;
+  }
+  try {
+    // Always send the reviewed text: if it's unchanged the server records
+    // edited=false, and a replay of the same text is a no-op.
+    const data = await callTool('approve_referral_letter', {
+      letter_id: state.letterId, approved_by: clinician, edited_letter_text: text,
+    });
+    state.letterStatus = data.status;
+    document.getElementById('letterText').value = data.letter_text;
+    showResult('letterDecisionResult', true, {
+      letter_id: data.letter_id, status: data.status, approved_by: data.approved_by, approved_at: data.approved_at,
+    });
+    renderLetterState();
+  } catch (e) {
+    showResult('letterDecisionResult', false, e.message);
+  }
+}
+
 async function requestCitation() {
   try {
     const data = await callTool('request_citation', { note_id: state.noteId, claimed_excerpt: document.getElementById('claimedExcerpt').value });
@@ -1028,6 +1346,7 @@ async function runCompliance() {
 
 checkConnection();
 renderSessionTabs();
+fillSendMethods(document.getElementById('letterSendMethod'));
 </script>
 </body>
 </html>

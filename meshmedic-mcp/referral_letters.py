@@ -9,9 +9,10 @@ server.py's audit trail the single source of truth: every function here
 takes the already-read audit entries as input and reconstructs letter state
 by replaying them, exactly like server.py's _find_note/_find_order.
 
-Lifecycle: a letter is generated as status="draft" and becomes
-status="ready_to_send" only when a clinician approves it. Nothing here
-sends anything -- "ready to send" is a recorded state, not a side effect.
+Lifecycle: draft -> ready_to_send (clinician approval) -> sent (clinician
+records how they delivered it). Nothing here delivers anything: "sent"
+records a delivery the clinician made outside this system (printed and
+handed over, faxed, mailed...), so the audit trail shows the letter left.
 
 Failure modes handled (raised as MissingEncounterData for the caller to
 surface): the note was never generated, was never approved (an unreviewed
@@ -27,8 +28,17 @@ from pydantic import BaseModel, Field
 
 GENERATE_ACTION = "generate_referral_letter"
 APPROVE_ACTION = "approve_referral_letter"
+SEND_ACTION = "mark_referral_letter_sent"
 
 MAX_LETTER_CHARS = 10000
+
+LetterStatus = Literal["draft", "ready_to_send", "sent"]
+
+# How the clinician got the letter out. This server never delivers a letter
+# itself -- marking it sent records a delivery that happened outside it.
+SendMethod = Literal[
+    "handed_to_patient", "mail", "fax", "email", "patient_portal", "other"
+]
 
 
 class MissingEncounterData(Exception):
@@ -40,12 +50,21 @@ class ReferralLetter(BaseModel):
     note_id: str
     patient_id: str
     ehr_system: str
-    status: Literal["draft", "ready_to_send"]
+    status: LetterStatus
     specialty: str
     letter_text: str
     generated_at: str
     approved_at: str | None
     approved_by: str | None
+    sent_at: str | None = None
+    sent_by: str | None = None
+    send_method: SendMethod | None = None
+
+
+class ReferralLetterList(BaseModel):
+    letters: list[ReferralLetter]
+    count: int
+    listed_at: str
 
 
 SpecialtyField = Annotated[str, Field(min_length=1, max_length=100)]
@@ -131,31 +150,69 @@ def existing_letter_id(
     return None
 
 
-def find_letter(entries: list[dict], letter_id: str) -> ReferralLetter | None:
-    """Replay the audit entries into the letter's current state."""
-    generated = None
-    approval = None
-    for entry in entries:
-        if entry.get("letter_id") != letter_id:
-            continue
-        if entry["action"] == GENERATE_ACTION:
-            generated = entry
-        elif entry["action"] == APPROVE_ACTION:
-            approval = entry
-    if generated is None:
-        return None
+def _build_letter(
+    generated: dict, approval: dict | None, sent: dict | None
+) -> ReferralLetter:
+    if sent and approval:
+        status = "sent"
+    elif approval:
+        status = "ready_to_send"
+    else:
+        status = "draft"
     return ReferralLetter(
-        letter_id=letter_id,
+        letter_id=generated["letter_id"],
         note_id=generated["note_id"],
         patient_id=generated["patient_id"],
         ehr_system=generated["ehr_system"],
-        status="ready_to_send" if approval else "draft",
+        status=status,
         specialty=generated["specialty"],
         letter_text=approval["letter_text"] if approval else generated["letter_text"],
         generated_at=generated["timestamp"],
         approved_at=approval["timestamp"] if approval else None,
         approved_by=approval["approved_by"] if approval else None,
+        sent_at=sent["timestamp"] if sent and approval else None,
+        sent_by=sent["sent_by"] if sent and approval else None,
+        send_method=sent["send_method"] if sent and approval else None,
     )
+
+
+def _replay(entries: list[dict]) -> dict[str, ReferralLetter]:
+    """Every letter in the audit entries, keyed by letter_id, oldest first."""
+    generated: dict[str, dict] = {}
+    approvals: dict[str, dict] = {}
+    sends: dict[str, dict] = {}
+    for entry in entries:
+        action = entry.get("action")
+        if action == GENERATE_ACTION:
+            generated[entry["letter_id"]] = entry
+        elif action == APPROVE_ACTION:
+            approvals[entry["letter_id"]] = entry
+        elif action == SEND_ACTION:
+            sends[entry["letter_id"]] = entry
+    return {
+        letter_id: _build_letter(gen, approvals.get(letter_id), sends.get(letter_id))
+        for letter_id, gen in generated.items()
+    }
+
+
+def find_letter(entries: list[dict], letter_id: str) -> ReferralLetter | None:
+    """Replay the audit entries into the letter's current state."""
+    return _replay(entries).get(letter_id)
+
+
+def list_letters(
+    entries: list[dict],
+    status: LetterStatus | None = None,
+    patient_id: str | None = None,
+) -> list[ReferralLetter]:
+    """All letters, optionally filtered, oldest first -- e.g. status=
+    "ready_to_send" is the queue of approved letters not yet sent."""
+    return [
+        letter
+        for letter in _replay(entries).values()
+        if (status is None or letter.status == status)
+        and (patient_id is None or letter.patient_id == patient_id)
+    ]
 
 
 def generate_entry(
@@ -196,4 +253,20 @@ def approve_entry(
         "letter_text": letter_text,
         "edited": letter_text != letter.letter_text,
         "status": "ready_to_send",
+    }
+
+
+def send_entry(
+    letter: ReferralLetter, timestamp: str, sent_by: str, send_method: str
+) -> dict:
+    return {
+        "timestamp": timestamp,
+        "action": SEND_ACTION,
+        "letter_id": letter.letter_id,
+        "note_id": letter.note_id,
+        "ehr_system": letter.ehr_system,
+        "patient_id": letter.patient_id,
+        "sent_by": sent_by,
+        "send_method": send_method,
+        "status": "sent",
     }

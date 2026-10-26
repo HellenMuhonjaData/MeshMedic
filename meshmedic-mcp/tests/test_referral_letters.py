@@ -334,3 +334,181 @@ def test_compliance_check_catches_a_double_approved_letter():
 def _raw(entry):
     with server.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+# --- Ready-to-send queue and recording delivery ------------------------------
+
+
+def _approved_letter(specialty="Cardiology"):
+    letter = _letter(_note().note_id, specialty=specialty)
+    return server.approve_referral_letter(
+        letter_id=letter.letter_id, approved_by="Dr. R"
+    )
+
+
+def test_list_ready_to_send_returns_only_approved_unsent_letters():
+    note = _note()
+    draft = _letter(note.note_id, specialty="Pulmonology")
+    ready = _approved_letter()
+    sent = _approved_letter(specialty="Neurology")
+    server.mark_referral_letter_sent(
+        letter_id=sent.letter_id, sent_by="Dr. R", send_method="fax"
+    )
+
+    queue = server.list_referral_letters(status="ready_to_send")
+
+    assert [lt.letter_id for lt in queue.letters] == [ready.letter_id]
+    assert queue.count == 1
+    assert {lt.letter_id for lt in server.list_referral_letters().letters} == {
+        draft.letter_id,
+        ready.letter_id,
+        sent.letter_id,
+    }
+
+
+def test_list_filters_by_patient_and_is_empty_on_empty_log():
+    assert server.list_referral_letters().count == 0
+    _approved_letter()
+
+    assert server.list_referral_letters(patient_id="epic-pt-10293847").count == 1
+    assert server.list_referral_letters(patient_id="oh-pt-88213").count == 0
+
+
+def test_list_writes_no_audit_entry():
+    _approved_letter()
+    before = len(_entries())
+
+    server.list_referral_letters(status="ready_to_send")
+
+    assert len(_entries()) == before
+
+
+def test_mark_sent_records_delivery_and_leaves_the_queue():
+    letter = _approved_letter()
+
+    sent = server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="handed_to_patient"
+    )
+
+    assert sent.status == "sent"
+    assert sent.sent_by == "Dr. R"
+    assert sent.send_method == "handed_to_patient"
+    assert sent.sent_at is not None
+    assert sent.letter_text == letter.letter_text
+    assert server.list_referral_letters(status="ready_to_send").count == 0
+    entry = _entries()[-1]
+    assert entry["action"] == "mark_referral_letter_sent"
+    assert entry["send_method"] == "handed_to_patient"
+
+
+def test_mark_sent_refuses_a_draft():
+    draft = _letter(_note().note_id)
+
+    with pytest.raises(ToolError, match="still a draft"):
+        server.mark_referral_letter_sent(
+            letter_id=draft.letter_id, sent_by="Dr. R", send_method="mail"
+        )
+    assert not any(e["action"] == "mark_referral_letter_sent" for e in _entries())
+
+
+def test_mark_sent_unknown_letter_raises_not_found():
+    with pytest.raises(ResourceNotFoundError):
+        server.mark_referral_letter_sent(
+            letter_id="nope", sent_by="Dr. R", send_method="mail"
+        )
+
+
+def test_mark_sent_is_idempotent_and_refuses_a_conflicting_method():
+    letter = _approved_letter()
+    first = server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+    )
+
+    again = server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+    )
+    assert again == first
+    with pytest.raises(ToolError, match="already marked sent"):
+        server.mark_referral_letter_sent(
+            letter_id=letter.letter_id, sent_by="Dr. R", send_method="fax"
+        )
+    sends = [e for e in _entries() if e["action"] == "mark_referral_letter_sent"]
+    assert len(sends) == 1
+
+
+def test_mark_sent_save_failure_leaves_letter_ready_to_send(read_only_log):
+    letter = _approved_letter()
+
+    with read_only_log(), pytest.raises(ToolError, match="audit trail"):
+        server.mark_referral_letter_sent(
+            letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+        )
+
+    assert server.list_referral_letters(status="ready_to_send").count == 1
+
+
+def test_a_sent_letter_cannot_be_re_approved_with_new_text():
+    letter = _approved_letter()
+    server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+    )
+
+    with pytest.raises(ToolError, match="already approved"):
+        server.approve_referral_letter(
+            letter_id=letter.letter_id,
+            approved_by="Dr. R",
+            edited_letter_text="Changed.",
+        )
+    approvals = [e for e in _entries() if e["action"] == "approve_referral_letter"]
+    assert len(approvals) == 1
+
+
+def test_send_method_contract_rejects_unknown_methods():
+    with pytest.raises(ValidationError):
+        TypeAdapter(referral_letters.SendMethod).validate_python("carrier_pigeon")
+
+
+def test_compliance_passes_after_send_and_catches_send_without_approval():
+    letter = _approved_letter()
+    server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+    )
+    assert server.run_compliance_check().all_passed is True
+
+    draft = _letter(_note().note_id, specialty="Dermatology")
+    _raw(
+        {
+            "timestamp": "t",
+            "action": "mark_referral_letter_sent",
+            "letter_id": draft.letter_id,
+        }
+    )
+    completeness = next(
+        c
+        for c in server.run_compliance_check().controls
+        if c.control_id == "REQ-006-audit-completeness"
+    )
+    assert completeness.passed is False
+    assert draft.letter_id in completeness.detail
+
+
+def test_compliance_catches_a_letter_marked_sent_twice():
+    letter = _approved_letter()
+    server.mark_referral_letter_sent(
+        letter_id=letter.letter_id, sent_by="Dr. R", send_method="mail"
+    )
+    _raw(
+        {
+            "timestamp": "t",
+            "action": "mark_referral_letter_sent",
+            "letter_id": letter.letter_id,
+        }
+    )
+
+    integrity = next(
+        c
+        for c in server.run_compliance_check().controls
+        if c.control_id == "REQ-014-single-decision-integrity"
+    )
+    assert integrity.passed is False
+    assert "marked sent 2 times" in integrity.detail

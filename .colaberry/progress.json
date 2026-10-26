@@ -523,13 +523,15 @@
         "meshmedic-mcp/tests/test_referral_letters.py",
         "docs/stories/STORY-011.md",
         "PROGRESS.md",
-        ".colaberry/progress.json"
+        ".colaberry/progress.json",
+        "meshmedic-mcp/ui/static/index.html"
       ],
       "tests_added": [
-        "tests/test_referral_letters.py: 26 tests -- generate from approved encounter (happy path, uses clinician-edited note text), failure paths (unknown note, unapproved draft, rejected note, unresolvable patient, real audit-write failure on generate and on approve), input-contract boundaries, idempotent generate and approve, approve -> ready_to_send, locked after approval, audit entries for creation+approval, compliance controls catch orphaned and double approvals"
+        "tests/test_referral_letters.py: 26 tests -- generate from approved encounter (happy path, uses clinician-edited note text), failure paths (unknown note, unapproved draft, rejected note, unresolvable patient, real audit-write failure on generate and on approve), input-contract boundaries, idempotent generate and approve, approve -> ready_to_send, locked after approval, audit entries for creation+approval, compliance controls catch orphaned and double approvals",
+        "tests/test_referral_letters.py: +12 tests -- list_referral_letters (ready-to-send queue, patient filter, empty log, read-only), mark_referral_letter_sent (happy path, draft refused, unknown id, idempotent replay, conflicting method refused, real audit-write failure leaves letter ready_to_send), sent letter cannot be re-approved, send-method contract, compliance catches send-without-approval and double send"
       ],
-      "notes": "generate_referral_letter builds a deterministic draft from a clinician-approved encounter note; approve_referral_letter marks it ready_to_send. Both actions are written to audit_log.jsonl and covered by the REQ-006/REQ-014 compliance controls. Verified with pytest (136 passed) and a live MCP stdio round-trip against an isolated server copy. Session CC-20261026-k7m2.",
-      "updated_at": "2026-10-26T20:30:00Z",
+      "notes": "generate_referral_letter builds a deterministic draft from a clinician-approved encounter note; approve_referral_letter marks it ready_to_send. Both actions are written to audit_log.jsonl and covered by the REQ-006/REQ-014 compliance controls. Verified with pytest (136 passed) and a live MCP stdio round-trip against an isolated server copy. Session CC-20261026-k7m2. Follow-up (same session): clinician UI card for review/approve, print/download of approved letters, a cross-patient ready-to-send queue, and mark_referral_letter_sent recording how a letter was delivered (MeshMedic does not deliver letters itself). 148 passed.",
+      "updated_at": "2026-10-26T21:30:00Z",
       "verification": {
         "state": "verified",
         "criteria_passed": 3,
