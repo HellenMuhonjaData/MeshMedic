@@ -328,6 +328,7 @@
         <label>Letter — review and edit before approving</label>
         <textarea id="letterText" style="min-height:280px; font-family:inherit;"></textarea>
         <button id="approveLetterBtn" onclick="approveReferralLetter()">Approve — mark ready to send</button>
+        <p class="small" id="letterApproveHint" style="margin:6px 0 0;">Print and Download appear once the letter is approved. Check the Patient line matches who you're referring before you do.</p>
         <div id="letterDecisionResult" class="result" style="display:none"></div>
         <div id="letterActions" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
           <p class="hint" style="margin-top:0">MeshMedic doesn't deliver letters. Print or download it, send it yourself, then record how it went out.</p>
@@ -1115,6 +1116,7 @@ function renderLetterState() {
   // An approved letter is closed server-side; lock the editor to match.
   textEl.readOnly = approved;
   approveBtn.disabled = approved;
+  document.getElementById('letterApproveHint').style.display = approved ? 'none' : 'block';
   actions.style.display = approved ? 'block' : 'none';
   document.getElementById('letterSendControls').style.display =
     state.letterStatus === 'sent' ? 'none' : 'flex';
