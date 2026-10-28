@@ -123,6 +123,7 @@
   .badge.low-conf { background: var(--warn-bg); color: var(--warn); }
   .badge.ok { background: var(--good-bg); color: var(--good); }
   .badge.fail { background: var(--bad-bg); color: var(--bad); }
+  .card.flash { box-shadow: 0 0 0 3px var(--accent); transition: box-shadow 0.3s; }
   .src-row { border-left: 4px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
   .src-row .src-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-right: 8px; background: var(--paper); }
   .src-row .src-evidence { color: var(--ink-soft); font-size: 12px; margin-top: 4px; }
@@ -1517,9 +1518,87 @@ async function runCompliance() {
   }
 }
 
+// Deep link from the activity dashboard's drill-down:
+//   /?patient=<id>&ehr=<system>&mrn=<mrn>&kind=note|gap|order|letter&item=<id>&note=<note_id>
+// Opens that patient's encounter, loads the item where it is acted on, and
+// scrolls to it. The query string is removed straight away so a page
+// refresh doesn't replay it.
+const OPEN_MESSAGES = {
+  note: 'Opened from the dashboard: review the draft note below, then approve or reject it.',
+  gap: 'Opened from the dashboard: record what was done about the care gap below.',
+  order: 'Opened from the dashboard: record the test result below when it is back.',
+  letter: 'Opened from the dashboard: review, approve or send the referral letter below.',
+};
+
+function focusItem(elId) {
+  const card = document.getElementById(elId).closest('.card');
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 2500);
+}
+
+async function openFromLink() {
+  const q = new URLSearchParams(location.search);
+  const patientId = q.get('patient');
+  if (!patientId) return;
+  history.replaceState(null, '', location.pathname);
+  const ehr = q.get('ehr');
+  const kind = q.get('kind');
+  const itemId = q.get('item');
+  const noteId = q.get('note');
+  try {
+    if (!q.get('mrn')) throw new Error('the link has no MRN to look the patient up by');
+    const found = await callTool('search_ehr_patient', { ehr_system: ehr, mrn: q.get('mrn'), max_results: 5 });
+    const match = (found.matches || []).find(m => m.patient_id === patientId);
+    if (!match) throw new Error(`patient ${patientId} was not found in ${ehr}`);
+    selectPatient(match, ehr);
+    const session = sessions.get(patientId);
+    if (noteId) {
+      state.noteId = noteId;
+      session.noteId = noteId;
+      document.getElementById('activeNote').textContent = noteId;
+      document.getElementById('activeNoteMini').textContent = noteId;
+    }
+    let target = 'noteDecision';
+    if (kind === 'note') {
+      document.getElementById('noteDecision').style.display = 'block';
+    } else if (kind === 'gap' || kind === 'order') {
+      const pending = await callTool('get_pending_items_for_patient', { patient_id: patientId });
+      if (kind === 'gap') {
+        const gap = pending.open_care_gaps.find(g => g.gap_id === itemId);
+        if (!gap) throw new Error('that care gap is no longer open');
+        if (!(session.gaps || []).some(g => g.gap_id === itemId)) addGapRow(gap);
+        target = 'gapsList';
+      } else {
+        const order = pending.pending_orders.find(o => o.order_id === itemId);
+        if (!order) throw new Error('that test order is no longer pending');
+        if (!(session.orders || []).some(o => o.order_id === itemId)) addOrderRow(order);
+        target = 'ordersList';
+      }
+    } else if (kind === 'letter') {
+      const letters = await callTool('list_referral_letters', { patient_id: patientId });
+      const letter = letters.letters.find(l => l.letter_id === itemId);
+      if (!letter) throw new Error('that referral letter was not found');
+      state.letterId = letter.letter_id;
+      state.letterStatus = letter.status;
+      session.letterId = letter.letter_id;
+      session.letterStatus = letter.status;
+      document.getElementById('letterText').value = letter.letter_text;
+      renderLetterState();
+      target = 'letterText';
+    }
+    if (state.noteId) loadSourceLabels();
+    showResult('patientResult', true, OPEN_MESSAGES[kind] || 'Opened from the dashboard.');
+    focusItem(target);
+  } catch (e) {
+    showResult('patientResult', false, `Could not open the item from the dashboard: ${e.message}.`);
+  }
+}
+
 checkConnection();
 renderSessionTabs();
 fillSendMethods(document.getElementById('letterSendMethod'));
+openFromLink();
 </script>
 </body>
 </html>

@@ -14,6 +14,7 @@ from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, Tex
 from pydantic import BaseModel, Field
 
 import activity_dashboard
+import attention_items
 import provenance
 import referral_letters
 from epic_fhir_client import EpicFHIRError, fetch_patient
@@ -3291,6 +3292,51 @@ def get_activity_summary(
         skipped_entries=summary.skipped_entries,
     )
     return summary
+
+
+@mcp.tool()
+def get_attention_items(
+    category: attention_items.Category,
+) -> attention_items.AttentionList:
+    """
+    Drill-down for one "waiting on you now" count on the activity dashboard:
+    the open items in `category`, oldest first, each with the patient's name
+    and MRN, what the item is, what the clinician needs to do, and how long
+    it has been waiting. Open each item in the workspace (by patient_id plus
+    item_id / note_id) to see its clinical detail and act on it -- rows name
+    the item briefly (gap description, test name, letter specialty) but
+    carry no note or result text.
+
+    Because the rows identify patients, each call writes a
+    view_attention_items audit entry (category and ids only). If that write
+    fails, this raises ToolError and returns nothing.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="get_attention_items",
+        category=category,
+    )
+    listing = attention_items.attention_list(
+        _all_audit_entries(),
+        category,
+        {(p["ehr_system"], p["patient_id"]): p for p in SAMPLE_PATIENTS},
+        datetime.now(timezone.utc),
+    )
+    _append_audit_entry(attention_items.view_entry(listing))
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="get_attention_items",
+        outcome="success",
+        count=listing.count,
+    )
+    return listing
 
 
 @mcp.tool()

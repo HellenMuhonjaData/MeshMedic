@@ -69,6 +69,27 @@
   .tile.attention { background: var(--warn-bg); border-color: transparent; }
   .tile.attention .value { color: var(--warn); }
   .tile.clear .value { color: var(--good); }
+  button.tile { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+  button.tile:hover { border-color: var(--accent); }
+  button.tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.tile[aria-expanded="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .drill { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .drill-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .drill-head h3 { font-size: 14px; margin: 0; }
+  .drill-head button { border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  .drill-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .drill-row:last-child { border-bottom: 0; }
+  .drill-row .who { font-weight: 600; }
+  .drill-row .mrn { color: var(--ink-soft); font-size: 12px; margin-left: 6px; font-weight: 400; }
+  .drill-row .what { margin-top: 2px; }
+  .drill-row .needs { color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+  .drill-row .side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .drill-row a { color: var(--accent); font-size: 13px; text-decoration: none; white-space: nowrap; }
+  .drill-row a:hover { text-decoration: underline; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--floor); color: var(--ink-soft); white-space: nowrap; }
+  .pill.old { background: var(--warn-bg); color: var(--warn); }
+  .pill.very-old { background: var(--bad-bg); color: var(--bad); }
+  .pill.low { background: var(--warn-bg); color: var(--warn); margin-left: 6px; }
   .chart { width: 100%; height: 220px; display: block; }
   .legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
   .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
@@ -96,7 +117,7 @@
       <button type="button" data-period="week" aria-pressed="false">Weeks</button>
       <button type="button" data-period="month" aria-pressed="false">Months</button>
     </div>
-    <button type="button" class="refresh" onclick="load()">Refresh</button>
+    <button type="button" class="refresh" onclick="load(); loadDrill();">Refresh</button>
     <span class="updated" id="updated"></span>
   </div>
 
@@ -104,8 +125,9 @@
 
   <section class="card">
     <h2>Waiting on you now</h2>
-    <p class="hint">Open items across all patients, whatever the period.</p>
+    <p class="hint">Open items across all patients, whatever the period. Click a tile to see each item and open it in the workspace.</p>
     <div class="tiles" id="pendingTiles"></div>
+    <div class="drill" id="drill" style="display:none"></div>
   </section>
 
   <section class="card">
@@ -157,6 +179,7 @@ const COLUMNS = [
 
 let period = 'day';
 let lastData = null;
+let drillCategory = null;
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -181,17 +204,92 @@ function delta(now, before, word) {
   return `${d > 0 ? '+' : '−'}${Math.abs(d)} vs ${word}`;
 }
 
+const PENDING = [
+  ['notes_awaiting_review', 'Notes awaiting review'],
+  ['open_care_gaps', 'Open care gaps'],
+  ['tests_awaiting_results', 'Tests awaiting results'],
+  ['letters_awaiting_approval', 'Letters awaiting approval'],
+  ['letters_ready_to_send', 'Letters ready to send'],
+];
+
 function renderPending(p) {
-  const items = [
-    ['Notes awaiting review', p.notes_awaiting_review],
-    ['Open care gaps', p.open_care_gaps],
-    ['Tests awaiting results', p.tests_awaiting_results],
-    ['Letters awaiting approval', p.letters_awaiting_approval],
-    ['Letters ready to send', p.letters_ready_to_send],
-  ];
-  document.getElementById('pendingTiles').innerHTML = items
-    .map(([label, n]) => tile(label, n, n ? 'needs attention' : 'all clear', n ? 'attention' : 'clear'))
-    .join('');
+  document.getElementById('pendingTiles').innerHTML = PENDING.map(([key, label]) => {
+    const n = p[key];
+    return `<button type="button" class="tile ${n ? 'attention' : 'clear'}" data-category="${key}" ` +
+      `aria-expanded="${drillCategory === key}" aria-controls="drill">` +
+      `<div class="label">${escapeHtml(label)}</div><div class="value">${n}</div>` +
+      `<div class="delta">${n ? 'needs attention · show items' : 'all clear'}</div></button>`;
+  }).join('');
+  document.querySelectorAll('#pendingTiles button').forEach(b => {
+    b.addEventListener('click', () => toggleDrill(b.dataset.category));
+  });
+}
+
+function formatWaiting(hours) {
+  if (hours < 1) return 'under an hour';
+  if (hours < 24) return `${Math.round(hours)} h`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+function workspaceLink(item) {
+  const q = new URLSearchParams({
+    patient: item.patient_id, ehr: item.ehr_system, kind: item.kind, item: item.item_id, note: item.note_id,
+  });
+  if (item.mrn) q.set('mrn', item.mrn);
+  return '/?' + q.toString();
+}
+
+function toggleDrill(category) {
+  if (drillCategory === category) {
+    drillCategory = null;
+    document.getElementById('drill').style.display = 'none';
+    document.querySelectorAll('#pendingTiles button').forEach(b => b.setAttribute('aria-expanded', 'false'));
+    return;
+  }
+  drillCategory = category;
+  document.querySelectorAll('#pendingTiles button').forEach(b =>
+    b.setAttribute('aria-expanded', String(b.dataset.category === category)));
+  loadDrill();
+}
+
+// Each drill-down view is audited server-side (it names patients), so it is
+// fetched on click and on manual Refresh only -- never by the 60 s timer.
+async function loadDrill() {
+  const el = document.getElementById('drill');
+  if (!drillCategory) return;
+  const category = drillCategory;
+  const label = PENDING.find(([k]) => k === category)[1];
+  el.style.display = 'block';
+  el.innerHTML = `<div class="drill-head"><h3>${escapeHtml(label)}</h3></div><p class="note">Loading…</p>`;
+  try {
+    const res = await fetch('/api/tools/get_attention_items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'get_attention_items failed');
+    if (category !== drillCategory) return;
+    const head = `<div class="drill-head"><h3>${escapeHtml(label)} (${data.count}) · oldest first</h3>` +
+      `<button type="button" onclick="toggleDrill('${category}')">Close</button></div>`;
+    if (!data.count) {
+      el.innerHTML = head + '<p class="note">Nothing waiting here.</p>';
+      return;
+    }
+    el.innerHTML = head + data.items.map(i => {
+      const age = i.waiting_hours >= 72 ? 'very-old' : i.waiting_hours >= 24 ? 'old' : '';
+      return `<div class="drill-row"><div>` +
+        `<div class="who">${escapeHtml(i.patient_name)}${i.mrn ? `<span class="mrn">MRN ${escapeHtml(i.mrn)}</span>` : ''}</div>` +
+        `<div class="what">${escapeHtml(i.summary)}${i.low_confidence ? '<span class="pill low">low confidence</span>' : ''}</div>` +
+        `<div class="needs">${escapeHtml(i.needs)}</div></div>` +
+        `<div class="side"><span class="pill ${age}">waiting ${formatWaiting(i.waiting_hours)}</span>` +
+        (i.mrn ? `<a href="${workspaceLink(i)}">Open in workspace →</a>` : '<span class="note">Patient not on file</span>') +
+        `</div></div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="error">Could not load the items (${escapeHtml(e.message)}). Nothing is shown rather than an out-of-date list.</div>`;
+  }
 }
 
 function renderCurrent(buckets) {
