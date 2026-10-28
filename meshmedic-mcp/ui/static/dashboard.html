@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MeshMedic Activity</title>
+<style>
+  :root {
+    --ink: #1b2430;
+    --ink-soft: #5b6b7c;
+    --line: #dfe6ec;
+    --paper: #ffffff;
+    --floor: #f4f7f9;
+    --accent: #2f5f8a;
+    --accent-soft: #eaf1f7;
+    --good: #1f7a4d;
+    --good-bg: #e8f5ee;
+    --warn: #a15c00;
+    --warn-bg: #fdf1de;
+    --bad: #a12b2b;
+    --bad-bg: #fbeaea;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--floor);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header {
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .tag { color: var(--ink-soft); font-size: 12px; margin-left: 10px; }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  header a:hover { text-decoration: underline; }
+  main { max-width: 1200px; margin: 20px auto; padding: 0 16px 40px; }
+  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); padding: 3px; }
+  .tabs button {
+    border: 0; background: transparent; color: var(--ink-soft); font: inherit; font-size: 13px;
+    padding: 6px 16px; border-radius: 999px; cursor: pointer;
+  }
+  .tabs button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .toolbar .refresh {
+    border: 1px solid var(--accent); background: var(--paper); color: var(--accent);
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+  }
+  .toolbar .updated { color: var(--ink-soft); font-size: 12px; }
+  section.card {
+    background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 20px; margin-bottom: 16px;
+  }
+  section.card h2 { font-size: 15px; margin: 0 0 4px; }
+  section.card .hint { color: var(--ink-soft); font-size: 12px; margin: 0 0 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: var(--floor); }
+  .tile .label { font-size: 12px; color: var(--ink-soft); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .delta { font-size: 12px; color: var(--ink-soft); }
+  .tile.attention { background: var(--warn-bg); border-color: transparent; }
+  .tile.attention .value { color: var(--warn); }
+  .tile.clear .value { color: var(--good); }
+  .chart { width: 100%; height: 220px; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
+  tr.current td { background: var(--accent-soft); font-weight: 600; }
+  td.zero { color: #a3b0bd; }
+  .error { background: var(--bad-bg); color: var(--bad); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; }
+  .note { color: var(--ink-soft); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MeshMedic <span class="tag">activity dashboard</span></h1>
+  <a href="/">← Back to clinician workspace</a>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div class="tabs" role="group" aria-label="Period">
+      <button type="button" data-period="day" aria-pressed="true">Days</button>
+      <button type="button" data-period="week" aria-pressed="false">Weeks</button>
+      <button type="button" data-period="month" aria-pressed="false">Months</button>
+    </div>
+    <button type="button" class="refresh" onclick="load()">Refresh</button>
+    <span class="updated" id="updated"></span>
+  </div>
+
+  <div id="error" class="error" style="display:none"></div>
+
+  <section class="card">
+    <h2>Waiting on you now</h2>
+    <p class="hint">Open items across all patients, whatever the period.</p>
+    <div class="tiles" id="pendingTiles"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="currentTitle">Today</h2>
+    <p class="hint" id="currentHint">Compared with the previous day.</p>
+    <div class="tiles" id="currentTiles"></div>
+  </section>
+
+  <section class="card">
+    <h2>Notes over time</h2>
+    <p class="hint" id="chartHint">Notes drafted and approved per day.</p>
+    <svg class="chart" id="chart" role="img" aria-label="Notes drafted and approved per period"></svg>
+    <div class="legend">
+      <span style="--c: #b9cde0">Drafted</span>
+      <span style="--c: var(--accent)">Approved</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>All activity</h2>
+    <p class="hint">Newest first. The highlighted row is the current period.</p>
+    <div class="table-wrap"><table id="table"></table></div>
+    <p class="note" id="footnote"></p>
+  </section>
+</main>
+
+<script>
+const PERIOD_WORDS = {
+  day: { current: 'Today', previous: 'yesterday', unit: 'day' },
+  week: { current: 'This week', previous: 'last week', unit: 'week' },
+  month: { current: 'This month', previous: 'last month', unit: 'month' },
+};
+
+const COLUMNS = [
+  ['patients_seen', 'Patients'],
+  ['notes_drafted', 'Notes drafted'],
+  ['notes_approved', 'Approved'],
+  ['notes_rejected', 'Rejected'],
+  ['notes_flagged_low_confidence', 'Low confidence'],
+  ['avg_documentation_seconds', 'Avg review time'],
+  ['code_sets_approved', 'Codes approved'],
+  ['care_gaps_flagged', 'Gaps flagged'],
+  ['care_gaps_addressed', 'Gaps addressed'],
+  ['tests_ordered', 'Tests ordered'],
+  ['tests_resulted', 'Results in'],
+  ['letters_prepared', 'Letters prepared'],
+  ['letters_sent', 'Letters sent'],
+];
+
+let period = 'day';
+let lastData = null;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function formatSeconds(s) {
+  if (s === null || s === undefined) return '—';
+  const m = Math.floor(s / 60);
+  const r = Math.round(s % 60);
+  return m ? `${m}m ${String(r).padStart(2, '0')}s` : `${r}s`;
+}
+
+function tile(label, value, extra, cls) {
+  return `<div class="tile ${cls || ''}"><div class="label">${escapeHtml(label)}</div>` +
+    `<div class="value">${escapeHtml(value)}</div>${extra ? `<div class="delta">${extra}</div>` : ''}</div>`;
+}
+
+function delta(now, before, word) {
+  if (now === null || before === null || now === undefined || before === undefined) return `no data ${word}`;
+  const d = now - before;
+  if (d === 0) return `same as ${word}`;
+  return `${d > 0 ? '+' : '−'}${Math.abs(d)} vs ${word}`;
+}
+
+function renderPending(p) {
+  const items = [
+    ['Notes awaiting review', p.notes_awaiting_review],
+    ['Open care gaps', p.open_care_gaps],
+    ['Tests awaiting results', p.tests_awaiting_results],
+    ['Letters awaiting approval', p.letters_awaiting_approval],
+    ['Letters ready to send', p.letters_ready_to_send],
+  ];
+  document.getElementById('pendingTiles').innerHTML = items
+    .map(([label, n]) => tile(label, n, n ? 'needs attention' : 'all clear', n ? 'attention' : 'clear'))
+    .join('');
+}
+
+function renderCurrent(buckets) {
+  const words = PERIOD_WORDS[period];
+  const cur = buckets[buckets.length - 1].metrics;
+  const prev = buckets.length > 1 ? buckets[buckets.length - 2].metrics : null;
+  document.getElementById('currentTitle').textContent = words.current;
+  document.getElementById('currentHint').textContent = `Compared with ${words.previous}.`;
+  const p = k => (prev ? prev[k] : null);
+  const docNow = cur.avg_documentation_seconds;
+  let docExtra = 'target 2m 00s';
+  if (docNow !== null) docExtra += cur.notes_over_time_target ? ` · ${cur.notes_over_time_target} over target` : ' · all within target';
+  document.getElementById('currentTiles').innerHTML = [
+    tile('Patients seen', cur.patients_seen, delta(cur.patients_seen, p('patients_seen'), words.previous)),
+    tile('Notes approved', cur.notes_approved, delta(cur.notes_approved, p('notes_approved'), words.previous)),
+    tile('Avg review time', formatSeconds(docNow), docExtra),
+    tile('Care gaps addressed', cur.care_gaps_addressed, delta(cur.care_gaps_addressed, p('care_gaps_addressed'), words.previous)),
+    tile('Letters sent', cur.letters_sent, delta(cur.letters_sent, p('letters_sent'), words.previous)),
+  ].join('');
+}
+
+function renderChart(buckets) {
+  const svg = document.getElementById('chart');
+  const W = svg.clientWidth || 800, H = 220, padL = 28, padB = 28, padT = 10;
+  const max = Math.max(1, ...buckets.map(b => Math.max(b.metrics.notes_drafted, b.metrics.notes_approved)));
+  const slot = (W - padL) / buckets.length;
+  const bw = Math.max(3, Math.min(18, slot / 3));
+  const y = v => padT + (H - padT - padB) * (1 - v / max);
+  const labelEvery = Math.ceil(buckets.length / Math.max(1, Math.floor((W - padL) / 70)));
+  let out = `<line x1="${padL}" y1="${y(0)}" x2="${W}" y2="${y(0)}" stroke="#dfe6ec"/>` +
+    `<text x="${padL - 6}" y="${y(max) + 4}" font-size="11" fill="#5b6b7c" text-anchor="end">${max}</text>` +
+    `<text x="${padL - 6}" y="${y(0) + 4}" font-size="11" fill="#5b6b7c" text-anchor="end">0</text>`;
+  buckets.forEach((b, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const d = b.metrics.notes_drafted, a = b.metrics.notes_approved;
+    out += `<rect x="${cx - bw - 1}" y="${y(d)}" width="${bw}" height="${y(0) - y(d)}" fill="#b9cde0" rx="2"><title>${escapeHtml(b.label)}: ${d} drafted</title></rect>`;
+    out += `<rect x="${cx + 1}" y="${y(a)}" width="${bw}" height="${y(0) - y(a)}" fill="#2f5f8a" rx="2"><title>${escapeHtml(b.label)}: ${a} approved</title></rect>`;
+    if ((buckets.length - 1 - i) % labelEvery === 0) {
+      out += `<text x="${cx}" y="${H - 8}" font-size="11" fill="#5b6b7c" text-anchor="middle">${escapeHtml(b.label.replace('Week of ', ''))}</text>`;
+    }
+  });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = out;
+  document.getElementById('chartHint').textContent = `Notes drafted and approved per ${PERIOD_WORDS[period].unit}.`;
+}
+
+function renderTable(buckets, totals) {
+  const head = `<tr><th>Period</th>${COLUMNS.map(([, l]) => `<th>${l}</th>`).join('')}</tr>`;
+  const cell = (k, m) => {
+    const v = m[k];
+    if (k === 'avg_documentation_seconds') return `<td class="${v === null ? 'zero' : ''}">${formatSeconds(v)}</td>`;
+    return `<td class="${v ? '' : 'zero'}">${v}</td>`;
+  };
+  const rows = buckets.slice().reverse().map((b, i) =>
+    `<tr class="${i === 0 ? 'current' : ''}"><td>${escapeHtml(b.label)}</td>${COLUMNS.map(([k]) => cell(k, b.metrics)).join('')}</tr>`);
+  const total = `<tr><td><strong>Total</strong></td>${COLUMNS.map(([k]) => cell(k, totals)).join('')}</tr>`;
+  document.getElementById('table').innerHTML = `<thead>${head}</thead><tbody>${rows.join('')}${total}</tbody>`;
+}
+
+async function load() {
+  const errEl = document.getElementById('error');
+  try {
+    const res = await fetch('/api/tools/get_activity_summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period, utc_offset_minutes: -new Date().getTimezoneOffset() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'get_activity_summary failed');
+    errEl.style.display = 'none';
+    lastData = data;
+    renderPending(data.pending);
+    renderCurrent(data.buckets);
+    renderChart(data.buckets);
+    renderTable(data.buckets, data.totals);
+    document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    document.getElementById('footnote').textContent =
+      'Counted from this computer\'s audit trail (everything recorded by MeshMedic here), in your local time zone.' +
+      (data.skipped_entries ? ` ${data.skipped_entries} audit entr${data.skipped_entries === 1 ? 'y' : 'ies'} had an unreadable date and were left out.` : '');
+  } catch (e) {
+    errEl.style.display = 'block';
+    errEl.textContent = `Could not load activity (${e.message}). Is the MeshMedic bridge running? The figures below may be out of date.`;
+  }
+}
+
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    period = btn.dataset.period;
+    document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    load();
+  });
+});
+window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(() => { if (lastData) renderChart(lastData.buckets); }, 200); });
+setInterval(load, 60000);
+load();
+</script>
+</body>
+</html>

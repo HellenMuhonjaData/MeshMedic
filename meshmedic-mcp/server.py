@@ -13,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, TextContent
 from pydantic import BaseModel, Field
 
+import activity_dashboard
 import provenance
 import referral_letters
 from epic_fhir_client import EpicFHIRError, fetch_patient
@@ -3238,6 +3239,58 @@ def label_information_sources(
         clinician_entered=labels.counts[provenance.CLINICIAN],
     )
     return labels
+
+
+@mcp.tool()
+def get_activity_summary(
+    period: activity_dashboard.Period = "day",
+    count: Annotated[int | None, Field(ge=1, le=activity_dashboard.MAX_COUNT)] = None,
+    utc_offset_minutes: Annotated[int, Field(ge=-840, le=840)] = 0,
+) -> activity_dashboard.ActivitySummary:
+    """
+    Clinician activity dashboard: counts of what was done per day, week
+    (Monday start) or month, plus what is waiting on the clinician right now
+    (notes awaiting review, open care gaps, tests awaiting results, letters
+    awaiting approval or ready to send).
+
+    `count` is how many periods to return, ending with the current one
+    (defaults: 14 days, 12 weeks, 12 months). `utc_offset_minutes` is the
+    clinician's local offset from UTC (e.g. 180 for UTC+3) so "today" and
+    "this week" match their clock -- the audit trail is stored in UTC.
+
+    Read-only and counts only: it writes no audit entry and returns no note
+    text or patient identities. Everything is replayed from the audit trail,
+    so the dashboard always agrees with it. Entries with an unreadable
+    timestamp are skipped and reported in `skipped_entries`.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="get_activity_summary",
+        period=period,
+    )
+    summary = activity_dashboard.summarize(
+        _all_audit_entries(),
+        period,
+        count or activity_dashboard.DEFAULT_COUNTS[period],
+        datetime.now(timezone.utc),
+        review_target_seconds=REVIEW_TIME_TARGET_SECONDS,
+        utc_offset_minutes=utc_offset_minutes,
+    )
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="get_activity_summary",
+        outcome="success",
+        bucket_count=len(summary.buckets),
+        skipped_entries=summary.skipped_entries,
+    )
+    return summary
 
 
 @mcp.tool()
