@@ -13,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, TextContent
 from pydantic import BaseModel, Field
 
+import provenance
 import referral_letters
 from epic_fhir_client import EpicFHIRError, fetch_patient
 from github_client import GitHubAPIError, get_issue_or_pr
@@ -2622,7 +2623,12 @@ def _referral_tool_error(
     tool: str, correlation_id: str, error_class: str, message: str
 ) -> ToolError:
     log_event(
-        _logger, "warning", TOOL_ERROR, correlation_id, tool=tool, error_class=error_class
+        _logger,
+        "warning",
+        TOOL_ERROR,
+        correlation_id,
+        tool=tool,
+        error_class=error_class,
     )
     return ToolError(message)
 
@@ -2652,9 +2658,7 @@ def generate_referral_letter(
     """
     tool = "generate_referral_letter"
     correlation_id = new_correlation_id()
-    log_event(
-        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, note_id=note_id
-    )
+    log_event(_logger, "info", TOOL_STARTED, correlation_id, tool=tool, note_id=note_id)
 
     try:
         approved_note = referral_letters.completed_encounter(
@@ -2756,11 +2760,15 @@ def approve_referral_letter(
             tool=tool,
             error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+        raise ResourceNotFoundError(
+            f"No referral letter found for letter_id={letter_id!r}."
+        )
 
     if letter.status == "voided":
         raise _voided_letter_error(tool, correlation_id, letter)
-    final_text = edited_letter_text if edited_letter_text is not None else letter.letter_text
+    final_text = (
+        edited_letter_text if edited_letter_text is not None else letter.letter_text
+    )
     if letter.status != "draft":
         if final_text == letter.letter_text:
             log_event(
@@ -2821,9 +2829,7 @@ def list_referral_letters(
     """
     tool = "list_referral_letters"
     correlation_id = new_correlation_id()
-    log_event(
-        _logger, "info", TOOL_STARTED, correlation_id, tool=tool, status=status
-    )
+    log_event(_logger, "info", TOOL_STARTED, correlation_id, tool=tool, status=status)
     letters = referral_letters.list_letters(_all_audit_entries(), status, patient_id)
     log_event(
         _logger,
@@ -2875,7 +2881,9 @@ def mark_referral_letter_sent(
             tool=tool,
             error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+        raise ResourceNotFoundError(
+            f"No referral letter found for letter_id={letter_id!r}."
+        )
     if letter.status == "voided":
         raise _voided_letter_error(tool, correlation_id, letter)
     if letter.status == "draft":
@@ -2986,7 +2994,9 @@ def void_referral_letter(
             tool=tool,
             error_class="ResourceNotFoundError",
         )
-        raise ResourceNotFoundError(f"No referral letter found for letter_id={letter_id!r}.")
+        raise ResourceNotFoundError(
+            f"No referral letter found for letter_id={letter_id!r}."
+        )
     if letter.status == "voided":
         log_event(
             _logger,
@@ -3160,6 +3170,74 @@ def request_citation(
         explanation=explanation,
         requested_at=requested_at,
     )
+
+
+@mcp.tool()
+def label_information_sources(
+    note_id: Annotated[str, Field(min_length=1)],
+) -> provenance.SourceLabels:
+    """
+    Label where each piece of an encounter's information came from, so the
+    clinician can tell what the encounter supports from what the AI added
+    (REQ-013 / STORY-012). Call this whenever a note, its codes or its care
+    gaps are shown to the clinician, and show the labels alongside them.
+
+    Each sentence of the note (as it stands now: approved text, latest edit,
+    or the AI draft) is labeled encounter_supported (most of its content
+    words appear in the transcript or chart; the best-matching transcript
+    line is returned as `evidence`), ai_generated (no such support -- e.g.
+    an assessment the AI inferred), or clinician_entered (added by a
+    clinician while editing, not in the AI's draft). Code suggestions and
+    care gaps for the note are always ai_generated -- approval is reported
+    in `review_status`, it does not change where an item came from.
+
+    Every call writes one audit entry recording the source label of every
+    item presented (labels and ids only, no text). Each call is its own
+    presentation, so two calls write two entries, like an access log. If
+    that write fails, this raises ToolError and returns no labels: nothing
+    is presented without its source being logged.
+    """
+    correlation_id = new_correlation_id()
+    log_event(
+        _logger,
+        "info",
+        TOOL_STARTED,
+        correlation_id,
+        tool="label_information_sources",
+        note_id=note_id,
+    )
+    record = _find_note(note_id)
+    if record is None:
+        log_event(
+            _logger,
+            "warning",
+            TOOL_ERROR,
+            correlation_id,
+            tool="label_information_sources",
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(f"No encounter note found for note_id={note_id!r}")
+    generated = record["generated"]
+    labels = provenance.label_encounter(
+        record,
+        _find_patient(generated["ehr_system"], generated["patient_id"]),
+        _all_audit_entries(),
+        datetime.now(timezone.utc).isoformat(),
+    )
+    _append_audit_entry(provenance.present_entry(labels))
+    log_event(
+        _logger,
+        "info",
+        TOOL_COMPLETED,
+        correlation_id,
+        tool="label_information_sources",
+        outcome="success",
+        note_id=note_id,
+        encounter_supported=labels.counts[provenance.ENCOUNTER],
+        ai_generated=labels.counts[provenance.AI],
+        clinician_entered=labels.counts[provenance.CLINICIAN],
+    )
+    return labels
 
 
 @mcp.tool()
@@ -3429,6 +3507,15 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
                 f"{action} for letter_id={entry['letter_id']!r} has no "
                 f"{referral_letters.APPROVE_ACTION} entry"
             )
+        elif action == provenance.PRESENT_ACTION:
+            if ("note", entry["note_id"]) not in drafted:
+                orphaned.append(
+                    f"{action} for note_id={entry['note_id']!r} has no generate_note entry"
+                )
+            orphaned.extend(
+                f"{action} for note_id={entry['note_id']!r} {problem}"
+                for problem in provenance.present_entry_problems(entry)
+            )
         elif action == referral_letters.VOID_ACTION:
             if ("letter", entry["letter_id"]) not in drafted:
                 orphaned.append(
@@ -3446,7 +3533,8 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
         control_id="REQ-006-audit-completeness",
         description=(
             "Every clinician decision (approve/reject a note or code set, address a care "
-            "gap, approve a referral letter) in the audit trail has a matching drafted entry."
+            "gap, approve a referral letter) in the audit trail has a matching drafted entry, "
+            "and every presentation of information records a valid source label per item."
         ),
         passed=passed,
         detail="No orphaned decisions found." if passed else "; ".join(orphaned),

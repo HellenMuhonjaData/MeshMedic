@@ -123,6 +123,15 @@
   .badge.low-conf { background: var(--warn-bg); color: var(--warn); }
   .badge.ok { background: var(--good-bg); color: var(--good); }
   .badge.fail { background: var(--bad-bg); color: var(--bad); }
+  .src-row { border-left: 4px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
+  .src-row .src-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-right: 8px; background: var(--paper); }
+  .src-row .src-evidence { color: var(--ink-soft); font-size: 12px; margin-top: 4px; }
+  .src-encounter_supported { border-color: var(--good); background: var(--good-bg); }
+  .src-encounter_supported .src-tag { color: var(--good); }
+  .src-ai_generated { border-color: var(--warn); background: var(--warn-bg); }
+  .src-ai_generated .src-tag { color: var(--warn); }
+  .src-clinician_entered { border-color: var(--accent); background: var(--accent-soft); }
+  .src-clinician_entered .src-tag { color: var(--accent); }
   .id-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; background: var(--floor); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; }
 
   .gap-row { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-top: 10px; }
@@ -262,6 +271,14 @@
         <div id="decisionResult" class="result" style="display:none"></div>
       </div>
       <div class="small">Active note: <span class="id-pill" id="activeNote">none</span></div>
+
+      <div id="sourcesPanel" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
+        <label style="font-size:13px; color:var(--ink); font-weight:600;">Where this came from</label>
+        <p class="hint" style="margin-bottom:6px;">label_information_sources — every line of the note, and every code and care gap, labeled by source. <strong>From encounter</strong>: said in the transcript or on the chart (the matching transcript line is shown). <strong>AI-generated</strong>: the AI added it — check it before relying on it. <strong>Clinician-entered</strong>: added by a clinician while editing. Each time labels are shown, the source of every item is written to the audit trail.</p>
+        <button class="secondary" type="button" onclick="loadSourceLabels()">Refresh source labels</button>
+        <div id="sourcesResult" class="result" style="display:none"></div>
+        <div id="sourcesList"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -648,6 +665,8 @@ function loadSession(key) {
   (session.gaps || []).forEach(g => addGapRow(g, false));
   document.getElementById('ordersList').innerHTML = '';
   (session.orders || []).forEach(o => addOrderRow(o, false));
+  clearSourceLabels();
+  if (state.noteId) loadSourceLabels();
 }
 
 function switchToSession(key) {
@@ -674,6 +693,7 @@ function closeSession(key) {
     document.getElementById('activeNote').textContent = 'none';
     document.getElementById('activeNoteMini').textContent = 'none';
     document.getElementById('gapsList').innerHTML = '';
+    clearSourceLabels();
     document.getElementById('ordersList').innerHTML = '';
   }
   renderSessionTabs();
@@ -933,6 +953,7 @@ async function generateNote() {
     if (data.warning) badge += ` <span class="badge low-conf">${escapeHtml(data.warning)}</span>`;
     showResult('noteResult', true, { note_id: data.note_id, status: data.status, warning: data.warning || null });
     document.getElementById('noteDecision').style.display = 'block';
+    loadSourceLabels();
   } catch (e) {
     showResult('noteResult', false, e.message);
   }
@@ -945,6 +966,7 @@ async function approveNote() {
   try {
     const data = await callTool('approve_encounter_note', args);
     showResult('decisionResult', true, data);
+    loadSourceLabels();
   } catch (e) {
     showResult('decisionResult', false, e.message);
   }
@@ -954,8 +976,58 @@ async function rejectNote() {
   try {
     const data = await callTool('reject_encounter_note', { note_id: state.noteId, feedback: 'Rejected from clinician UI demo.' });
     showResult('decisionResult', true, data);
+    loadSourceLabels();
   } catch (e) {
     showResult('decisionResult', false, e.message);
+  }
+}
+
+const SOURCE_TAGS = {
+  encounter_supported: 'From encounter',
+  ai_generated: 'AI-generated',
+  clinician_entered: 'Clinician-entered',
+};
+
+function clearSourceLabels() {
+  document.getElementById('sourcesList').innerHTML = '';
+  document.getElementById('sourcesResult').style.display = 'none';
+}
+
+function sourceRowHtml(source, text, extra) {
+  return `<div class="src-row src-${source}"><span class="src-tag">${SOURCE_TAGS[source] || 'Unknown source'}</span>${escapeHtml(text)}${extra || ''}</div>`;
+}
+
+// Fetch and show the source labels for the active note. Every call is an
+// audited presentation (the server logs each item's source). On failure the
+// old labels are removed rather than left on screen: stale labels for a
+// different version of the note would be worse than none.
+async function loadSourceLabels() {
+  const list = document.getElementById('sourcesList');
+  if (!state.noteId) {
+    clearSourceLabels();
+    showResult('sourcesResult', false, 'No active note yet. Generate a note above to see where each line came from.');
+    return;
+  }
+  const noteId = state.noteId;
+  try {
+    const data = await callTool('label_information_sources', { note_id: noteId });
+    if (noteId !== state.noteId) return;  // patient switched while waiting
+    const c = data.counts;
+    showResult('sourcesResult', true,
+      `Note (${data.note_status}): ${c.encounter_supported} from encounter · ${c.ai_generated} AI-generated · ${c.clinician_entered} clinician-entered`);
+    const rows = data.sentences.map(s => sourceRowHtml(s.source, s.text,
+      s.evidence ? `<div class="src-evidence">Transcript: “${escapeHtml(s.evidence)}”</div>` : ''));
+    if (data.items.length) {
+      rows.push('<label style="margin-top:12px;">Codes and care gaps</label>');
+      data.items.forEach(i => rows.push(sourceRowHtml(i.source, i.text,
+        `<div class="src-evidence">${i.item_type === 'care_gap' ? 'Care gap' : 'Code suggestion'} · ${escapeHtml(i.review_status)}</div>`)));
+    }
+    list.innerHTML = rows.join('');
+  } catch (e) {
+    if (noteId !== state.noteId) return;
+    list.innerHTML = '';
+    showResult('sourcesResult', false,
+      `Source labels could not be loaded (${e.message}). Treat every line of this note as AI-generated until you have checked it against the transcript.`);
   }
 }
 
@@ -985,6 +1057,7 @@ async function suggestCodes() {
     state.suggestionId = data.suggestion_id;
     showResult('codesResult', true, data);
     document.getElementById('codesDecision').style.display = 'block';
+    loadSourceLabels();
   } catch (e) {
     showResult('codesResult', false, e.message);
   }
@@ -994,6 +1067,7 @@ async function approveCodes() {
   try {
     const data = await callTool('approve_codes', { suggestion_id: state.suggestionId });
     showResult('codesDecisionResult', true, data);
+    loadSourceLabels();
   } catch (e) {
     showResult('codesDecisionResult', false, e.message);
   }
@@ -1009,6 +1083,7 @@ async function identifyGaps() {
     showResult('gapsResult', true, data);
     const gaps = data.gaps || (Array.isArray(data) ? data : []);
     gaps.forEach(g => addGapRow(g));
+    loadSourceLabels();
   } catch (e) {
     showResult('gapsResult', false, e.message);
   }

@@ -552,21 +552,31 @@
       "criteria": [
         {
           "text": "Given a patient encounter, when information is presented, then the system clearly labels encounter-supported data.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Given AI-generated information is presented, when a clinician reviews it, then the system clearly labels it as AI-generated.",
-          "passed": false
+          "passed": true
         },
         {
           "text": "Trust: The system logs the source of each piece of information presented to the clinician.",
-          "passed": false
+          "passed": true
         }
       ],
-      "files_touched": [],
-      "tests_added": [],
-      "notes": null,
-      "updated_at": null,
+      "files_touched": [
+        "meshmedic-mcp/provenance.py",
+        "meshmedic-mcp/server.py",
+        "meshmedic-mcp/tests/test_provenance.py",
+        "meshmedic-mcp/ui/static/index.html",
+        "docs/stories/STORY-012.md",
+        "PROGRESS.md",
+        ".colaberry/progress.json"
+      ],
+      "tests_added": [
+        "tests/test_provenance.py: 19 tests -- transcript-grounded sentences labeled encounter_supported with evidence; verbatim transcript sentence never labeled AI-generated (story failure path); chart facts count as encounter; every word of the note covered by a labeled sentence; unsupported inference labeled ai_generated; codes and care gaps ai_generated with approved/rejected/addressed review status; other notes' items excluded; clinician-added sentence labeled clinician_entered; labels follow the latest edit; presentation audit entry records a source per item with no text; deterministic labels and one entry per presentation; compliance passes, and flags invalid labels and presentations of unknown notes; unknown note raises and logs nothing; real audit-write failure presents nothing; no note text in structured logs"
+      ],
+      "notes": "label_information_sources(note_id) labels each note sentence encounter_supported / ai_generated / clinician_entered (deterministic content-word overlap with transcript + chart, threshold 0.5, verbatim always encounter) and every code suggestion / care gap as ai_generated with its review status. Each presentation writes a present_information_sources audit entry (labels + ids, no text); a failed write presents nothing. UI: 'Where this came from' panel in step 2, auto-refreshed after note/code/gap actions; on failure it shows a warning to treat the note as AI-generated. Label means 'the encounter says this', not 'this is clinically correct'.",
+      "updated_at": "2026-10-28T16:43:43.421727+00:00",
       "verification": {
         "state": "in_progress",
         "criteria_passed": 0,

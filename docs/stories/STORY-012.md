@@ -27,8 +27,8 @@ the same criteria out of `.colaberry/progress.json`, which Claude Code keeps in
 step (see the managed block in CLAUDE.md). Ticking something you have not
 actually met only misleads you.
 
-- [ ] Given a patient encounter, when information is presented, then the system clearly labels encounter-supported data.
-- [ ] Given AI-generated information is presented, when a clinician reviews it, then the system clearly labels it as AI-generated.
-- [ ] Trust: The system logs the source of each piece of information presented to the clinician.
+- [x] Given a patient encounter, when information is presented, then the system clearly labels encounter-supported data.
+- [x] Given AI-generated information is presented, when a clinician reviews it, then the system clearly labels it as AI-generated.
+- [x] Trust: The system logs the source of each piece of information presented to the clinician.
 
 When every box above is ticked, stop and show the demo.
