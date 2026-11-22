@@ -1,0 +1,152 @@
+/* MeshMedic theme -- shared by the clinician workspace and the activity dashboard.
+   Loaded after each page's own <style>, so it restyles without touching behaviour.
+   Remove the <link> to theme.css to fall back to the original look. */
+
+:root {
+  --ink: #13282e;
+  --ink-soft: #587076;
+  --line: #dce6e5;
+  --paper: #ffffff;
+  --floor: #f2f6f5;
+  --accent: #0b7a75;        /* scrub teal */
+  --accent-strong: #08605c;
+  --accent-soft: #e3f2f0;
+  --brand-deep: #0d2b30;    /* header band, logo tile */
+  --pulse: #ff6b57;         /* the patient at the centre of the mesh -- used sparingly */
+  --ai: #5b4bc4;            /* anything the AI proposed and a clinician has not yet decided */
+  --ai-soft: #efecfb;
+  --good: #1f7a4d;
+  --good-bg: #e6f4ec;
+  --warn: #9a5a00;
+  --warn-bg: #fcf0dc;
+  --bad: #a12b2b;
+  --bad-bg: #fbeaea;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(13, 43, 48, 0.06), 0 6px 18px rgba(13, 43, 48, 0.05);
+  --font-body: "Figtree", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+  --font-display: "Bricolage Grotesque", "Figtree", "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  background: var(--floor);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+/* ---------- header band ---------- */
+header {
+  background: var(--brand-deep);
+  background-image: radial-gradient(circle at 12% -40%, rgba(25, 179, 166, 0.35), transparent 55%);
+  border-bottom: 0;
+  color: #fff;
+  padding: 12px 24px;
+}
+.brand { display: flex; align-items: center; gap: 12px; color: #fff; text-decoration: none; }
+.brand img { width: 36px; height: 36px; display: block; border-radius: 10px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.brand .wordmark { font-family: var(--font-display); font-size: 21px; font-weight: 500; letter-spacing: -0.01em; line-height: 1; }
+.brand .wordmark b { font-weight: 800; color: #6fe0d3; }
+.brand .tag {
+  color: #a9cfcb; font-size: 12px; margin-left: 4px; padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+header .nav-link, header a:not(.brand) {
+  color: #fff; text-decoration: none; font-size: 13px; font-weight: 600;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.22);
+}
+header .nav-link:hover, header a:not(.brand):hover { background: rgba(255, 255, 255, 0.08); text-decoration: none; }
+#conn { border-color: rgba(255, 255, 255, 0.22); color: #d7e7e5; font-size: 12px; }
+#conn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #a9cfcb; margin-right: 6px; vertical-align: 1px; }
+#conn.ok { background: rgba(31, 180, 120, 0.16); color: #9ff0c8; border-color: transparent; }
+#conn.ok::before { background: #3ddc97; box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.25); }
+#conn.bad { background: rgba(255, 107, 87, 0.16); color: #ffc2b8; border-color: transparent; }
+#conn.bad::before { background: var(--pulse); }
+
+/* ---------- surfaces ---------- */
+.card, section.card, #log, #patientPanel {
+  border-color: var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.card h2, section.card h2 { font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: -0.005em; }
+.card h2 .step {
+  width: 24px; height: 24px; border-radius: 7px; font-size: 12px; font-weight: 700;
+  background: linear-gradient(135deg, #19b3a6, var(--accent-strong));
+}
+#patientPanel h2, #log h2 { font-family: var(--font-body); font-weight: 700; color: var(--accent); }
+.card .hint, section.card .hint { color: var(--ink-soft); }
+
+/* ---------- controls ---------- */
+input[type=text], input[type=number], textarea, select {
+  border-radius: 8px; border-color: var(--line); transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(11, 122, 117, 0.15);
+}
+button { border-radius: 8px; font-weight: 600; border-color: var(--accent); background: var(--accent); transition: background 0.15s, box-shadow 0.15s; }
+button:hover:not(:disabled) { filter: none; background: var(--accent-strong); border-color: var(--accent-strong); }
+button.secondary { background: var(--paper); color: var(--accent); }
+button.secondary:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-strong); }
+button.ghost { background: transparent; color: var(--ink-soft); border-color: var(--line); }
+button.ghost:hover:not(:disabled) { background: var(--floor); color: var(--ink); border-color: var(--ink-soft); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The one button that starts everything: the AI draft. */
+button.ai {
+  background: linear-gradient(135deg, #6d5ce0, var(--ai) 55%, #4433a8);
+  border-color: transparent; color: #fff; padding: 9px 16px;
+  box-shadow: 0 4px 14px rgba(91, 75, 196, 0.28);
+}
+button.ai:hover:not(:disabled) { background: linear-gradient(135deg, #5f4fd4, #4a3bb0); border-color: transparent; box-shadow: 0 6px 18px rgba(91, 75, 196, 0.36); }
+
+/* ---------- AI suggestions awaiting a decision ---------- */
+.ai-suggestion { border-color: transparent; border-left: 4px solid var(--ai); background: var(--ai-soft); }
+.ai-suggestion .src-tag, .order-input-row .src-tag {
+  display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 1px 8px; border-radius: 999px; background: var(--ai); color: #fff; margin-left: 4px;
+}
+.order-input-row .src-tag { vertical-align: 1px; }
+.result { border-radius: 8px; }
+
+/* ---------- dashboard ---------- */
+.tabs button[aria-pressed="true"] { background: var(--accent); }
+.tile { border-radius: 10px; background: var(--paper); }
+.tile .value { font-family: var(--font-display); font-weight: 700; }
+tr.current td { background: var(--accent-soft); }
+.toolbar .refresh { border-radius: 8px; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- workspace: same building blocks as the dashboard ---------- */
+#patientPanel h2, #log h2 {
+  font-family: var(--font-display); font-size: 16px; font-weight: 700;
+  text-transform: none; letter-spacing: -0.005em; color: var(--ink);
+}
+#patientPanel .active-strip {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+}
+#patientPanel .match-row, .session-chip { border-radius: 10px; padding: 9px 12px; }
+#patientPanel .match-row:hover, #patientPanel .match-row.active,
+.session-chip.active { border-color: var(--accent); background: var(--accent-soft); }
+.session-chip.active { box-shadow: inset 3px 0 0 var(--accent); }
+.id-pill { background: var(--floor); border-color: var(--line); border-radius: 999px; padding: 1px 8px; }
+
+/* result panels and list rows read as dashboard tiles */
+.result { background: var(--accent-soft); border: 1px solid transparent; }
+.result.error { background: var(--bad-bg); border-color: transparent; }
+.gap-row { border-radius: 10px; background: var(--paper); }
+.gap-row:not(.ai-suggestion) { background: var(--floor); }
+.src-row { border-radius: 8px; }
+
+/* live activity reads like the dashboard's drill-down list */
+.log-entry {
+  border: 1px solid var(--line); border-left: 4px solid var(--line);
+  border-radius: 10px; padding: 8px 12px; background: var(--floor);
+}
+.log-entry.ok { border-left-color: var(--good); }
+.log-entry.err { border-left-color: var(--bad); background: var(--bad-bg); }
+.log-entry .tool { font-family: var(--font-display); }
+
+/* section dividers inside cards */
+.card hr { border-top-color: var(--line) !important; }
+#noteDecision, #sourcesPanel { border-top-color: var(--line) !important; }

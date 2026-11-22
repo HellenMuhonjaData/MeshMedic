@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MeshMedic Activity</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;600;700&display=swap" />
 <style>
   :root {
     --ink: #1b2430;
@@ -103,10 +106,11 @@
   .error { background: var(--bad-bg); color: var(--bad); border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; }
   .note { color: var(--ink-soft); font-size: 12px; }
 </style>
+<link rel="stylesheet" href="theme.css?v=2" />
 </head>
 <body>
 <header>
-  <h1>MeshMedic <span class="tag">activity dashboard</span></h1>
+  <a class="brand" href="/"><img src="logo.svg" alt="" /><h1 class="wordmark" style="margin:0">Mesh<b>Medic</b></h1><span class="tag">activity dashboard</span></a>
   <a href="/">← Back to clinician workspace</a>
 </header>
 
@@ -141,8 +145,8 @@
     <p class="hint" id="chartHint">Notes drafted and approved per day.</p>
     <svg class="chart" id="chart" role="img" aria-label="Notes drafted and approved per period"></svg>
     <div class="legend">
-      <span style="--c: #b9cde0">Drafted</span>
-      <span style="--c: var(--accent)">Approved</span>
+      <span style="--c: #a8dcd6">Drafted</span>
+      <span style="--c: #0b7a75">Approved</span>
     </div>
   </section>
 
@@ -175,6 +179,10 @@ const COLUMNS = [
   ['tests_resulted', 'Results in'],
   ['letters_prepared', 'Letters prepared'],
   ['letters_sent', 'Letters sent'],
+  ['ai_approved_as_is', 'AI approved unedited'],
+  ['ai_approved_with_edits', 'AI edited'],
+  ['ai_possibly_unread', 'Possibly unread'],
+  ['clinician_entered', 'Clinician-entered'],
 ];
 
 let period = 'day';
@@ -308,6 +316,8 @@ function renderCurrent(buckets) {
     tile('Avg review time', formatSeconds(docNow), docExtra),
     tile('Care gaps addressed', cur.care_gaps_addressed, delta(cur.care_gaps_addressed, p('care_gaps_addressed'), words.previous)),
     tile('Letters sent', cur.letters_sent, delta(cur.letters_sent, p('letters_sent'), words.previous)),
+    tile('AI suggestions approved unedited', cur.ai_approved_as_is,
+      `${cur.ai_approved_with_edits} edited first · ${cur.ai_possibly_unread} possibly unread`),
   ].join('');
 }
 
@@ -325,8 +335,8 @@ function renderChart(buckets) {
   buckets.forEach((b, i) => {
     const cx = padL + slot * i + slot / 2;
     const d = b.metrics.notes_drafted, a = b.metrics.notes_approved;
-    out += `<rect x="${cx - bw - 1}" y="${y(d)}" width="${bw}" height="${y(0) - y(d)}" fill="#b9cde0" rx="2"><title>${escapeHtml(b.label)}: ${d} drafted</title></rect>`;
-    out += `<rect x="${cx + 1}" y="${y(a)}" width="${bw}" height="${y(0) - y(a)}" fill="#2f5f8a" rx="2"><title>${escapeHtml(b.label)}: ${a} approved</title></rect>`;
+    out += `<rect x="${cx - bw - 1}" y="${y(d)}" width="${bw}" height="${y(0) - y(d)}" fill="#a8dcd6" rx="2"><title>${escapeHtml(b.label)}: ${d} drafted</title></rect>`;
+    out += `<rect x="${cx + 1}" y="${y(a)}" width="${bw}" height="${y(0) - y(a)}" fill="#0b7a75" rx="2"><title>${escapeHtml(b.label)}: ${a} approved</title></rect>`;
     if ((buckets.length - 1 - i) % labelEvery === 0) {
       out += `<text x="${cx}" y="${H - 8}" font-size="11" fill="#5b6b7c" text-anchor="middle">${escapeHtml(b.label.replace('Week of ', ''))}</text>`;
     }

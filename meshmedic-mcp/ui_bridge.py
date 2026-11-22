@@ -27,11 +27,14 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
+
+from note_drafting import CONFIDENCE_INSTRUCTIONS, DRAFT_OUTPUT_SCHEMA, DraftContractError, parse_draft
 
 ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "ui" / "static"
@@ -46,7 +49,7 @@ load_dotenv(ROOT / ".env")
 # about here (see PROGRESS.md for the per-call cost estimate this was chosen
 # against).
 DRAFT_MODEL = "claude-opus-5"
-DRAFT_MAX_TOKENS = 1500
+DRAFT_MAX_TOKENS = 4000  # note + codes + gaps + orders + referral as JSON
 DRAFT_SYSTEM_PROMPT = (ROOT.parent / "prompts" / "generate-clinical-note" / "system_prompt.md").read_text()
 
 # REQ-015 (must, constraint): "ambient audio recordings and text transcripts"
@@ -162,8 +165,11 @@ async def draft_note(request: Request) -> JSONResponse:
         response = _anthropic.messages.create(
             model=DRAFT_MODEL,
             max_tokens=DRAFT_MAX_TOKENS,
-            system=DRAFT_SYSTEM_PROMPT,
-            output_config={"effort": "low"},
+            system=DRAFT_SYSTEM_PROMPT + CONFIDENCE_INSTRUCTIONS,
+            output_config={
+                "effort": "low",
+                "format": {"type": "json_schema", "schema": DRAFT_OUTPUT_SCHEMA},
+            },
             messages=[{"role": "user", "content": transcript}],
         )
     except anthropic.AuthenticationError:
@@ -175,10 +181,29 @@ async def draft_note(request: Request) -> JSONResponse:
     except anthropic.APIConnectionError:
         return JSONResponse({"error": "Could not reach the Anthropic API (network error)."}, status_code=502)
 
-    note_text = next((b.text for b in response.content if b.type == "text"), "").strip()
+    if response.stop_reason == "refusal":
+        return JSONResponse({"error": "The AI declined to draft this note. Write it yourself instead."}, status_code=502)
+    if response.stop_reason == "max_tokens":
+        return JSONResponse({"error": "The AI draft was cut off before it finished. Try again."}, status_code=502)
+
+    raw = next((b.text for b in response.content if b.type == "text"), "")
+    try:
+        draft = parse_draft(raw)
+    except DraftContractError as exc:
+        return JSONResponse({"error": f"The AI draft was malformed ({exc}). Try again."}, status_code=502)
+
     return JSONResponse(
         {
-            "note_text": note_text,
+            "note_text": draft.note_text,
+            "confidence": draft.confidence,
+            "confidence_reason": draft.confidence_reason,
+            "low_confidence": draft.low_confidence,
+            "codes": draft.codes,
+            "codes_confidence": draft.codes_confidence,
+            "codes_confidence_reason": draft.codes_confidence_reason,
+            "care_gaps": draft.care_gaps,
+            "test_orders": draft.test_orders,
+            "referral": draft.referral,
             "usage": {
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
@@ -243,7 +268,17 @@ routes = [
     Mount("/", app=StaticFiles(directory=str(STATIC_DIR), html=True), name="static"),
 ]
 
+async def _no_stale_ui(request: Request, call_next):
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 middleware = [
+    # Pages and styles must always be revalidated: without this the browser
+    # may reuse a cached copy of the UI after it changes (heuristic caching).
+    Middleware(BaseHTTPMiddleware, dispatch=_no_stale_ui),
     Middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:8420", "http://localhost:8420"], allow_methods=["*"], allow_headers=["*"]),
 ]
 

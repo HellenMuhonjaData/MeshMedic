@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MeshMedic</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;600;700&display=swap" />
 <style>
   :root {
     --ink: #1b2430;
@@ -193,14 +196,15 @@
   .plus-row textarea { min-height: 44px; }
   .small { font-size: 12px; color: var(--ink-soft); }
 </style>
+<link rel="stylesheet" href="theme.css?v=2" />
 </head>
 <body>
 <header>
   <div>
-    <h1>MeshMedic <span class="tag">clinical documentation copilot</span></h1>
+    <a class="brand" href="/"><img src="logo.svg" alt="" /><h1 class="wordmark" style="margin:0">Mesh<b>Medic</b></h1><span class="tag">clinical documentation copilot</span></a>
   </div>
   <div style="display:flex; align-items:center; gap:14px;">
-    <a href="/dashboard.html" style="color:var(--accent); text-decoration:none; font-size:13px;">Activity dashboard →</a>
+    <a class="nav-link" href="/dashboard.html">Activity dashboard →</a>
     <div id="conn">connecting…</div>
   </div>
 </header>
@@ -254,21 +258,21 @@
         <div>
           <label>Draft note text</label>
           <textarea id="noteText" placeholder="What the note should say…"></textarea>
-          <button class="secondary" type="button" onclick="draftNoteWithAI()">Draft with AI</button>
+          <button class="ai" type="button" onclick="draftNoteWithAI()">✦ Draft with AI</button>
           <span class="small" id="draftStatus"></span>
         </div>
         <div>
-          <label>Your confidence (0–1)</label>
+          <label>AI confidence (0–1) — set by "Draft with AI"; you can override</label>
           <input type="number" id="confidence" min="0" max="1" step="0.05" value="0.9" />
           <label>Reason (required if confidence &lt; 0.7)</label>
           <input type="text" id="confidenceReason" placeholder="Why confidence is low…" />
         </div>
       </div>
-      <button onclick="generateNote()">Generate note</button>
+      <button onclick="generateNote('clinician')">Generate note from text I wrote</button>
       <div id="noteResult" class="result" style="display:none"></div>
 
       <div id="noteDecision" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
-        <label>Edited note text (optional, used on approve)</label>
+        <label>Review the note — edit anything that's wrong, then approve. Edits are recorded against the AI's version.</label>
         <textarea id="editedNoteText"></textarea>
         <button onclick="approveNote()">Approve</button>
         <button class="secondary" onclick="rejectNote()">Reject</button>
@@ -287,17 +291,14 @@
 
     <div class="card">
       <h2><span class="step">3</span> Suggested codes</h2>
-      <p class="hint">suggest_codes / approve_codes — ICD-10 / CPT, reviewed the same way as the note. You (the clinician) enter the code and its description; grey text is only an example.</p>
-      <div class="row">
-        <div><label>Code</label><input type="text" id="codeValue" placeholder="e.g. I10" /></div>
-        <div><label>System</label><select id="codeSystem"><option value="icd-10">icd-10</option><option value="cpt">cpt</option></select></div>
-        <div><label>Description</label><input type="text" id="codeDesc" placeholder="e.g. Essential hypertension" /></div>
-      </div>
+      <p class="hint">suggest_codes / approve_codes — "Draft with AI" fills these in. Edit, add or remove codes, then Approve codes; the audit trail records what you changed from the AI's set. Without AI, type the codes and click Suggest codes first.</p>
+      <div id="codeRows"></div>
+      <button type="button" class="ghost" onclick="addCodeRow()">+ Add code</button>
       <label>Confidence (0–1)</label>
       <input type="number" id="codeConfidence" min="0" max="1" step="0.05" value="0.9" />
       <label>Reason (required if confidence &lt; 0.7)</label>
       <input type="text" id="codeConfidenceReason" />
-      <button onclick="suggestCodes()">Suggest codes</button>
+      <button onclick="suggestCodes('clinician')">Suggest codes I entered</button>
       <div id="codesResult" class="result" style="display:none"></div>
       <div id="codesDecision" style="display:none; margin-top:10px;">
         <button onclick="approveCodes()">Approve codes</button>
@@ -307,7 +308,9 @@
 
     <div class="card">
       <h2><span class="step">4</span> Care gaps</h2>
-      <p class="hint">identify_care_gaps / address_care_gap — each gap is flagged and closed independently.</p>
+      <p class="hint">identify_care_gaps / address_care_gap — AI-suggested gaps appear first: edit the wording if needed, then Accept or Dismiss each. Accepted gaps record whether you changed the AI's wording.</p>
+      <div id="gapSuggestions"></div>
+      <label style="margin-top:12px">Add a care gap yourself</label>
       <div class="plus-row">
         <div style="flex:1"><label>Gap description</label><textarea id="gapDesc" placeholder="e.g. Overdue for A1c screening"></textarea></div>
         <div style="width:110px"><label>Confidence</label><input type="number" id="gapConfidence" min="0" max="1" step="0.05" value="0.9" /></div>
@@ -322,11 +325,10 @@
     <div class="card">
       <h2><span class="step">5</span> Continuity — orders &amp; follow-up</h2>
       <p class="hint">order_test / record_test_result / get_pending_items_for_patient — what a returning patient's next visit sees from this one.</p>
-      <div class="row">
-        <div><label>Test name</label><input type="text" id="orderTestName" placeholder="A1c" /></div>
-        <div><label>Reason</label><input type="text" id="orderReason" placeholder="Overdue for annual diabetes screening" /></div>
-      </div>
-      <button onclick="orderTest()">Order test</button>
+      <p class="small" style="margin:0 0 6px">Tick the tests to order. AI-suggested tests can be edited first; add as many of your own as you need.</p>
+      <div id="orderRows"></div>
+      <button type="button" class="ghost" onclick="addOrderInputRow()">+ Add another test</button>
+      <button onclick="orderSelectedTests()">Order selected tests</button>
       <div id="orderResult" class="result" style="display:none"></div>
       <div id="ordersList"></div>
       <hr style="border:none; border-top:1px solid var(--line); margin:16px 0;" />
@@ -493,9 +495,7 @@ function prefillSample() {
     "Clinician: I'm going to start you on lisinopril 10mg daily and have you recheck your blood pressure in two weeks. You're also overdue for your annual A1c -- let's get that drawn today.";
   document.getElementById('noteText').value =
     "Patient presents with two-week history of afternoon headaches and elevated home blood pressure readings (avg 150/95). Denies chest pain, vision changes, dyspnea. Assessment: likely uncontrolled hypertension. Plan: start lisinopril 10mg daily, recheck BP in 2 weeks, draw A1c today (overdue for annual screening).";
-  document.getElementById('codeValue').value = 'I10';
-  document.getElementById('codeSystem').value = 'icd-10';
-  document.getElementById('codeDesc').value = 'Essential (primary) hypertension';
+  renderCodeRows([{ code: 'I10', code_system: 'icd-10', description: 'Essential (primary) hypertension' }]);
   document.getElementById('referralSpecialty').value = 'Cardiology';
   document.getElementById('referringClinician').value = 'Dr. A. Rivera';
   document.getElementById('referralReason').value =
@@ -552,10 +552,9 @@ function blankFormFields() {
   return {
     transcript: '', noteText: '', confidence: '0.9', confidenceReason: '', editedNoteText: '',
     noteDecisionVisible: false,
-    codeValue: '', codeSystem: 'icd-10', codeDesc: '', codeConfidence: '0.9', codeConfidenceReason: '',
+    codeConfidence: '0.9', codeConfidenceReason: '',
     codesDecisionVisible: false,
     gapDesc: '', gapConfidence: '0.9', gapConfidenceReason: '',
-    orderTestName: '', orderReason: '',
     referralSpecialty: '', referringClinician: '', referralReason: '', letterText: '',
     claimedExcerpt: '',
   };
@@ -569,17 +568,12 @@ function captureFormFields() {
     confidenceReason: document.getElementById('confidenceReason').value,
     editedNoteText: document.getElementById('editedNoteText').value,
     noteDecisionVisible: document.getElementById('noteDecision').style.display !== 'none',
-    codeValue: document.getElementById('codeValue').value,
-    codeSystem: document.getElementById('codeSystem').value,
-    codeDesc: document.getElementById('codeDesc').value,
     codeConfidence: document.getElementById('codeConfidence').value,
     codeConfidenceReason: document.getElementById('codeConfidenceReason').value,
     codesDecisionVisible: document.getElementById('codesDecision').style.display !== 'none',
     gapDesc: document.getElementById('gapDesc').value,
     gapConfidence: document.getElementById('gapConfidence').value,
     gapConfidenceReason: document.getElementById('gapConfidenceReason').value,
-    orderTestName: document.getElementById('orderTestName').value,
-    orderReason: document.getElementById('orderReason').value,
     referralSpecialty: document.getElementById('referralSpecialty').value,
     referringClinician: document.getElementById('referringClinician').value,
     referralReason: document.getElementById('referralReason').value,
@@ -595,17 +589,12 @@ function applyFormFields(f) {
   document.getElementById('confidenceReason').value = f.confidenceReason || '';
   document.getElementById('editedNoteText').value = f.editedNoteText || '';
   document.getElementById('noteDecision').style.display = f.noteDecisionVisible ? 'block' : 'none';
-  document.getElementById('codeValue').value = f.codeValue || '';
-  document.getElementById('codeSystem').value = f.codeSystem || 'icd-10';
-  document.getElementById('codeDesc').value = f.codeDesc || '';
   document.getElementById('codeConfidence').value = f.codeConfidence || '0.9';
   document.getElementById('codeConfidenceReason').value = f.codeConfidenceReason || '';
   document.getElementById('codesDecision').style.display = f.codesDecisionVisible ? 'block' : 'none';
   document.getElementById('gapDesc').value = f.gapDesc || '';
   document.getElementById('gapConfidence').value = f.gapConfidence || '0.9';
   document.getElementById('gapConfidenceReason').value = f.gapConfidenceReason || '';
-  document.getElementById('orderTestName').value = f.orderTestName || '';
-  document.getElementById('orderReason').value = f.orderReason || '';
   document.getElementById('referralSpecialty').value = f.referralSpecialty || '';
   document.getElementById('referringClinician').value = f.referringClinician || '';
   document.getElementById('referralReason').value = f.referralReason || '';
@@ -619,11 +608,14 @@ function applyFormFields(f) {
    'citationResult', 'ehrResult', 'complianceResult']
     .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('draftStatus').textContent = '';
+  // Code rows, AI gap suggestions and test rows belong to one patient each.
+  if (typeof restoreReviewState === 'function') restoreReviewState();
   document.getElementById('transcribeStatus').textContent =
     'Record live from the mic, or upload a pre-recorded clip. Recording again appends to what\'s already here.';
 }
 
 function saveActiveSession() {
+  if (typeof captureReviewState === 'function') captureReviewState();
   if (!activeSessionKey) return;
   const session = sessions.get(activeSessionKey);
   if (!session) return;
@@ -907,14 +899,22 @@ async function draftNoteWithAI() {
       return;
     }
     document.getElementById('noteText').value = data.note_text;
+    if (typeof data.confidence === 'number') {
+      document.getElementById('confidence').value = data.confidence;
+      document.getElementById('confidenceReason').value = data.confidence_reason || '';
+    }
     const u = data.usage || {};
-    status.textContent = `Drafted (${u.input_tokens ?? '?'} in / ${u.output_tokens ?? '?'} out tokens) — review before generating.`;
+    const conf = typeof data.confidence === 'number'
+      ? ` AI confidence ${data.confidence.toFixed(2)}${data.low_confidence ? ' (LOW — will be flagged)' : ''}.`
+      : '';
+    status.textContent = `Drafted (${u.input_tokens ?? '?'} in / ${u.output_tokens ?? '?'} out tokens).${conf} Recording the AI's suggestions…`;
+    await applyAiDraft(data);
   } catch (e) {
     status.textContent = e.message;
   }
 }
 
-async function generateNote() {
+async function generateNote(source = 'clinician') {
   // Never fall back to a default patient: a note filed under the wrong
   // chart is worse than no note at all.
   if (!state.patientId) {
@@ -938,6 +938,7 @@ async function generateNote() {
     transcript,
     note_text: noteText,
     confidence,
+    source,
   };
   const reason = document.getElementById('confidenceReason').value.trim();
   if (reason) args.confidence_reason = reason;
@@ -969,7 +970,7 @@ async function approveNote() {
   if (edited) args.edited_note_text = edited;
   try {
     const data = await callTool('approve_encounter_note', args);
-    showResult('decisionResult', true, data);
+    showResult('decisionResult', true, `${reviewSummary(data.review)}\n\n${JSON.stringify(data, null, 2)}`);
     loadSourceLabels();
   } catch (e) {
     showResult('decisionResult', false, e.message);
@@ -1035,24 +1036,24 @@ async function loadSourceLabels() {
   }
 }
 
-async function suggestCodes() {
-  const code = document.getElementById('codeValue').value.trim();
-  const description = document.getElementById('codeDesc').value.trim();
+async function suggestCodes(source = 'clinician') {
+  const codes = readCodeRows();
   // Checked here so a blank field gets a plain message instead of the
   // server's raw pydantic "string_too_short" validation dump.
   if (!state.noteId) {
     showResult('codesResult', false, 'Generate and approve an encounter note (steps 1-2) before suggesting codes.');
     return;
   }
-  if (!code || !description) {
-    showResult('codesResult', false, 'Enter both a Code and a Description (the grey text is only an example).');
+  if (!codes.length || codes.some(c => !c.code || !c.description)) {
+    showResult('codesResult', false, 'Every code row needs both a Code and a Description (the grey text is only an example). Remove empty rows with ×.');
     return;
   }
   const confidence = parseFloat(document.getElementById('codeConfidence').value);
   const args = {
     note_id: state.noteId,
-    codes: [{ code, code_system: document.getElementById('codeSystem').value, description }],
+    codes,
     confidence,
+    source,
   };
   const reason = document.getElementById('codeConfidenceReason').value.trim();
   if (reason) args.confidence_reason = reason;
@@ -1069,8 +1070,13 @@ async function suggestCodes() {
 
 async function approveCodes() {
   try {
-    const data = await callTool('approve_codes', { suggestion_id: state.suggestionId });
-    showResult('codesDecisionResult', true, data);
+    const codes = readCodeRows();
+    if (codes.some(c => !c.code || !c.description)) {
+      showResult('codesDecisionResult', false, 'Every code row needs both a Code and a Description. Remove empty rows with ×.');
+      return;
+    }
+    const data = await callTool('approve_codes', { suggestion_id: state.suggestionId, edited_codes: codes });
+    showResult('codesDecisionResult', true, `${reviewSummary(data.review)}\n\n${JSON.stringify(data, null, 2)}`);
     loadSourceLabels();
   } catch (e) {
     showResult('codesDecisionResult', false, e.message);
@@ -1085,7 +1091,8 @@ async function identifyGaps() {
   try {
     const data = await callTool('identify_care_gaps', { note_id: state.noteId, gaps: [gap] });
     showResult('gapsResult', true, data);
-    const gaps = data.gaps || (Array.isArray(data) ? data : []);
+    // A list result comes back from the bridge wrapped as { result: [...] }.
+    const gaps = Array.isArray(data) ? data : (data.result || data.gaps || []);
     gaps.forEach(g => addGapRow(g));
     loadSourceLabels();
   } catch (e) {
@@ -1123,20 +1130,6 @@ function addGapRow(gap, track = true) {
     }
   };
   list.appendChild(row);
-}
-
-async function orderTest() {
-  try {
-    const data = await callTool('order_test', {
-      note_id: state.noteId,
-      test_name: document.getElementById('orderTestName').value,
-      reason: document.getElementById('orderReason').value,
-    });
-    showResult('orderResult', true, data);
-    addOrderRow(data);
-  } catch (e) {
-    showResult('orderResult', false, e.message);
-  }
 }
 
 function addOrderRow(order, track = true) {
@@ -1600,5 +1593,6 @@ renderSessionTabs();
 fillSendMethods(document.getElementById('letterSendMethod'));
 openFromLink();
 </script>
+<script src="ai_review.js"></script>
 </body>
 </html>

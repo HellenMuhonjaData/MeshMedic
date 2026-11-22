@@ -241,3 +241,19 @@ def test_dashboard_is_read_only_and_returns_no_text():
     assert first.model_dump(exclude={"generated_at"}) == second.model_dump(
         exclude={"generated_at"}
     )
+
+
+def test_review_outcomes_are_counted():
+    review = lambda outcome, unread=False: {"outcome": outcome, "possibly_unread": unread}  # noqa: E731
+    entries = [
+        _e("2026-10-28T09:00:00+00:00", "approve_note", review=review("approved_as_is", unread=True)),
+        _e("2026-10-28T09:05:00+00:00", "approve_codes", review=review("approved_with_edits")),
+        _e("2026-10-28T09:06:00+00:00", "order_test", review=review("approved_as_is")),
+        _e("2026-10-28T09:07:00+00:00", "order_test", review=review("clinician_entered")),
+        _e("2026-10-28T09:08:00+00:00", "order_test"),  # older entry with no review: not counted
+    ]
+    totals = _summarize(entries).totals
+    assert totals.ai_approved_as_is == 2
+    assert totals.ai_approved_with_edits == 1
+    assert totals.ai_possibly_unread == 1
+    assert totals.clinician_entered == 1

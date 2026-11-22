@@ -14,6 +14,8 @@ from mcp_types import CreateMessageResult, ListRootsResult, SamplingMessage, Tex
 from pydantic import BaseModel, Field
 
 import activity_dashboard
+import ai_suggestions
+import review_tracking
 import attention_items
 import provenance
 import referral_letters
@@ -45,6 +47,8 @@ from referral_letters import (
 )
 from roots_guard import resolve_within_roots
 from sample_patients import SAMPLE_PATIENTS
+from ai_suggestions import RecordedSuggestions, ReferralSuggestion, TestOrderSuggestion
+from review_tracking import ReviewRecord
 
 mcp = MCPServer("meshmedic")
 
@@ -155,6 +159,7 @@ class ReviewedNote(BaseModel):
     documentation_time_seconds: float
     exceeded_target: bool
     suggestions: list[str] | None
+    review: ReviewRecord | None = None
 
 
 class EditedNote(BaseModel):
@@ -194,12 +199,16 @@ class ReviewedCodes(BaseModel):
     codes: list[CodeSuggestion]
     feedback: str | None
     reviewed_at: str
+    review: ReviewRecord | None = None
 
 
 class CareGapInput(BaseModel):
     description: Annotated[str, Field(min_length=1, max_length=300)]
     confidence: Annotated[float, Field(ge=0.0, le=1.0)]
     confidence_reason: Annotated[str | None, Field(max_length=1000)] = None
+    # item_id from record_ai_suggestions when the clinician is accepting an
+    # AI-suggested gap (possibly edited); omit for a gap the clinician entered.
+    suggestion_item_id: str | None = None
 
 
 class CareGap(BaseModel):
@@ -213,6 +222,7 @@ class CareGap(BaseModel):
     flagged: bool
     warning: str | None
     identified_at: str
+    review: ReviewRecord | None = None
 
 
 class AddressedCareGap(BaseModel):
@@ -250,6 +260,7 @@ class TestOrder(BaseModel):
     test_name: str
     reason: str
     ordered_at: str
+    review: ReviewRecord | None = None
 
 
 class ResultedTestOrder(BaseModel):
@@ -825,6 +836,7 @@ def generate_encounter_note(
     note_text: Annotated[str, Field(min_length=1, max_length=5000)],
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
     confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
+    source: Literal["ai", "clinician"] = "ai",
 ) -> GeneratedNote:
     """
     Record an AI-drafted encounter note for a confirmed patient so it can later
@@ -908,6 +920,7 @@ def generate_encounter_note(
             "patient_id": patient_id,
             "transcript": transcript,
             "note_text": note_text,
+            "source": source,
             "confidence": confidence,
             "flagged": flagged,
             "confidence_reason": confidence_reason,
@@ -1190,6 +1203,7 @@ def approve_encounter_note(
                 documentation_time_seconds=documentation_time_seconds,
                 exceeded_target=documentation_time_seconds > REVIEW_TIME_TARGET_SECONDS,
                 suggestions=_speed_up_suggestions(documentation_time_seconds),
+                review=decision.get("review"),
             )
         log_event(
             _logger,
@@ -1212,6 +1226,13 @@ def approve_encounter_note(
     )
     exceeded_target = documentation_time_seconds > REVIEW_TIME_TARGET_SECONDS
     suggestions = _speed_up_suggestions(documentation_time_seconds)
+    review = (
+        review_tracking.clinician_entered()
+        if generated.get("source") == "clinician"
+        else review_tracking.review_text(
+            generated["note_text"], final_text, generated["timestamp"], reviewed_at
+        )
+    )
     _append_audit_entry(
         {
             "timestamp": reviewed_at,
@@ -1222,6 +1243,7 @@ def approve_encounter_note(
             "note_text": final_text,
             "status": "approved",
             "documentation_time_seconds": documentation_time_seconds,
+            "review": review.model_dump(),
         }
     )
     log_event(
@@ -1247,6 +1269,7 @@ def approve_encounter_note(
         documentation_time_seconds=documentation_time_seconds,
         exceeded_target=exceeded_target,
         suggestions=suggestions,
+        review=review,
     )
 
 
@@ -1415,6 +1438,7 @@ def suggest_codes(
     codes: Annotated[list[CodeSuggestion], Field(min_length=1)],
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
     confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
+    source: Literal["ai", "clinician"] = "ai",
 ) -> SuggestedCodes:
     """
     Record AI-suggested ICD-10/CPT codes for a previously generated encounter
@@ -1496,6 +1520,7 @@ def suggest_codes(
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],
             "codes": [c.model_dump() for c in codes],
+            "source": source,
             "confidence": confidence,
             "flagged": flagged,
             "confidence_reason": confidence_reason,
@@ -1606,6 +1631,7 @@ def approve_codes(
                 codes=[CodeSuggestion(**c) for c in decision["codes"]],
                 feedback=None,
                 reviewed_at=decision["timestamp"],
+                review=decision.get("review"),
             )
         log_event(
             _logger,
@@ -1623,6 +1649,13 @@ def approve_codes(
         )
 
     reviewed_at = datetime.now(timezone.utc).isoformat()
+    review = (
+        review_tracking.clinician_entered()
+        if suggested.get("source") == "clinician"
+        else review_tracking.review_codes(
+            suggested["codes"], final_codes_dump, suggested["timestamp"], reviewed_at
+        )
+    )
     _append_audit_entry(
         {
             "timestamp": reviewed_at,
@@ -1633,6 +1666,7 @@ def approve_codes(
             "patient_id": suggested["patient_id"],
             "codes": final_codes_dump,
             "status": "approved",
+            "review": review.model_dump(),
         }
     )
     log_event(
@@ -1654,6 +1688,7 @@ def approve_codes(
         codes=final_codes,
         feedback=None,
         reviewed_at=reviewed_at,
+        review=review,
     )
 
 
@@ -1875,10 +1910,36 @@ def identify_care_gaps(
                 "required so the warning carries an explanation (REQ-008)."
             )
 
+    entries = _all_audit_entries()
+    suggested_items = {}
+    for gap_input in gaps:
+        if gap_input.suggestion_item_id:
+            suggested_items[gap_input.suggestion_item_id] = _resolve_suggestion_item(
+                entries, gap_input.suggestion_item_id, "care_gap", note_id,
+                "identify_care_gaps", correlation_id,
+            )
+
     generated = note_record["generated"]
     identified_at = datetime.now(timezone.utc).isoformat()
     results: list[CareGap] = []
     for gap_input in gaps:
+        item_id = gap_input.suggestion_item_id
+        existing = _accepted_entry(entries, "identify_care_gap", item_id)
+        if existing is not None:
+            # Idempotent: this AI suggestion was already accepted -- return
+            # that gap instead of flagging a duplicate.
+            results.append(_care_gap_from_entry(existing))
+            continue
+        if item_id:
+            record_entry, item = suggested_items[item_id]
+            review = review_tracking.review_fields(
+                {"description": item["fields"].get("description") or ""},
+                {"description": gap_input.description},
+                record_entry["timestamp"],
+                identified_at,
+            )
+        else:
+            review = review_tracking.clinician_entered()
         gap_id = str(uuid.uuid4())
         flagged = gap_input.confidence < CONFIDENCE_THRESHOLD
         warning = (
@@ -1899,6 +1960,8 @@ def identify_care_gaps(
                 "flagged": flagged,
                 "confidence_reason": gap_input.confidence_reason,
                 "status": "flagged",
+                "suggestion_item_id": item_id,
+                "review": review.model_dump(),
             }
         )
         results.append(
@@ -1913,6 +1976,7 @@ def identify_care_gaps(
                 flagged=flagged,
                 warning=warning,
                 identified_at=identified_at,
+                review=review,
             )
         )
     log_event(
@@ -2284,6 +2348,150 @@ async def prioritize_care_gaps(
     )
 
 
+def _resolve_suggestion_item(
+    entries: list[dict], item_id: str, kind: str, note_id: str, tool: str, correlation_id: str
+) -> tuple[dict, dict]:
+    """Look up an AI-suggested item being accepted; it must exist, be the
+    right kind, and belong to this note (never accept another chart's item)."""
+    found = ai_suggestions.find_item(entries, item_id)
+    if found is None or found[1].get("kind") != kind or found[0].get("note_id") != note_id:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id, tool=tool, error_class="ValidationError"
+        )
+        raise ToolError(
+            f"suggestion_item_id={item_id!r} is not a recorded AI {kind} suggestion for "
+            f"note_id={note_id!r}. Use an item_id returned by record_ai_suggestions for this note."
+        )
+    return found
+
+
+def _accepted_entry(entries: list[dict], action: str, item_id: str | None) -> dict | None:
+    if not item_id:
+        return None
+    for entry in entries:
+        if entry.get("action") == action and entry.get("suggestion_item_id") == item_id:
+            return entry
+    return None
+
+
+def _care_gap_from_entry(entry: dict) -> "CareGap":
+    flagged = bool(entry.get("flagged"))
+    return CareGap(
+        gap_id=entry["gap_id"],
+        note_id=entry["note_id"],
+        patient_id=entry["patient_id"],
+        ehr_system=entry["ehr_system"],
+        status="flagged",
+        description=entry["description"],
+        confidence=entry["confidence"],
+        flagged=flagged,
+        warning=(
+            f"Low confidence ({entry['confidence']:.2f}): {entry.get('confidence_reason')}"
+            if flagged
+            else None
+        ),
+        identified_at=entry["timestamp"],
+        review=entry.get("review"),
+    )
+
+
+def _test_order_from_entry(entry: dict) -> "TestOrder":
+    return TestOrder(
+        order_id=entry["order_id"],
+        note_id=entry["note_id"],
+        patient_id=entry["patient_id"],
+        ehr_system=entry["ehr_system"],
+        status="pending",
+        test_name=entry["test_name"],
+        reason=entry["reason"],
+        ordered_at=entry["timestamp"],
+        review=entry.get("review"),
+    )
+
+
+@mcp.tool()
+def record_ai_suggestions(
+    note_id: Annotated[str, Field(min_length=1)],
+    care_gaps: list[CareGapInput] | None = None,
+    test_orders: list[TestOrderSuggestion] | None = None,
+    referral: ReferralSuggestion | None = None,
+) -> RecordedSuggestions:
+    """
+    Record what the AI proposed for an encounter -- care gaps, test orders
+    and a referral -- before the clinician acts on any of it (REQ-006,
+    REQ-014). Nothing here is a clinical record: each item gets an
+    `item_id`, and only when the clinician accepts an item (possibly after
+    editing it) does it become a care gap (identify_care_gaps with
+    suggestion_item_id) or a test order (order_test with suggestion_item_id).
+    The server then compares the accepted version with this original, so the
+    audit trail shows whether the clinician approved the AI's version as-is
+    or changed it, and how quickly.
+
+    Idempotent: recording identical suggestions for the same note again
+    returns the first record instead of writing a duplicate.
+    """
+    tool = "record_ai_suggestions"
+    correlation_id = new_correlation_id()
+    log_event(_logger, "info", TOOL_STARTED, correlation_id, tool=tool, note_id=note_id)
+
+    note_record = _find_note(note_id)
+    if note_record is None:
+        log_event(
+            _logger, "warning", TOOL_ERROR, correlation_id, tool=tool,
+            error_class="ResourceNotFoundError",
+        )
+        raise ResourceNotFoundError(
+            f"No generated note found for note_id={note_id!r}; record the note "
+            "(generate_encounter_note) before its suggestions."
+        )
+    for gap in care_gaps or []:
+        if gap.confidence < CONFIDENCE_THRESHOLD and not gap.confidence_reason:
+            log_event(
+                _logger, "warning", TOOL_ERROR, correlation_id, tool=tool,
+                error_class="ValidationError",
+            )
+            raise ToolError(
+                f"confidence={gap.confidence!r} for {gap.description!r} is below the "
+                f"low-confidence threshold ({CONFIDENCE_THRESHOLD}); confidence_reason is "
+                "required (REQ-008)."
+            )
+
+    gap_fields = [
+        {"description": g.description, "confidence": g.confidence, "confidence_reason": g.confidence_reason}
+        for g in care_gaps or []
+    ]
+    order_fields = [o.model_dump() for o in test_orders or []]
+    referral_fields = referral.model_dump() if referral else None
+    key = ai_suggestions.content_key(note_id, gap_fields, order_fields, referral_fields)
+    generated = note_record["generated"]
+
+    existing = ai_suggestions.find_existing(_all_audit_entries(), key)
+    if existing is None:
+        existing = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": ai_suggestions.RECORD_ACTION,
+            "note_id": note_id,
+            "ehr_system": generated["ehr_system"],
+            "patient_id": generated["patient_id"],
+            "content_key": key,
+            "items": ai_suggestions.build_items(gap_fields, order_fields, referral_fields),
+        }
+        _append_audit_entry(existing)
+        no_op = False
+    else:
+        no_op = True
+    log_event(
+        _logger, "info", TOOL_COMPLETED, correlation_id, tool=tool, note_id=note_id,
+        outcome="success", no_op=no_op, item_count=len(existing["items"]),
+    )
+    return RecordedSuggestions(
+        note_id=note_id,
+        patient_id=existing["patient_id"],
+        recorded_at=existing["timestamp"],
+        items=existing["items"],
+    )
+
+
 def _find_order(order_id: str) -> dict | None:
     """Reconstruct a single test order's current state by replaying the
     audit log, same pattern as _find_gap/_find_suggestion/_find_note."""
@@ -2310,6 +2518,7 @@ def order_test(
     note_id: Annotated[str, Field(min_length=1)],
     test_name: Annotated[str, Field(min_length=1, max_length=200)],
     reason: Annotated[str, Field(min_length=1, max_length=500)],
+    suggestion_item_id: str | None = None,
 ) -> TestOrder:
     """
     Record that a clinician ordered a diagnostic test following an encounter
@@ -2356,9 +2565,26 @@ def order_test(
             "exists (generate_encounter_note) before ordering a test against it."
         )
 
+    entries = _all_audit_entries()
+    review = review_tracking.clinician_entered()
+    if suggestion_item_id:
+        existing = _accepted_entry(entries, "order_test", suggestion_item_id)
+        if existing is not None:
+            # Idempotent: this AI-suggested test was already ordered.
+            return _test_order_from_entry(existing)
+        record_entry, item = _resolve_suggestion_item(
+            entries, suggestion_item_id, "test_order", note_id, "order_test", correlation_id
+        )
     generated = note_record["generated"]
     order_id = str(uuid.uuid4())
     ordered_at = datetime.now(timezone.utc).isoformat()
+    if suggestion_item_id:
+        review = review_tracking.review_fields(
+            {"test_name": item["fields"].get("test_name") or "", "reason": item["fields"].get("reason") or ""},
+            {"test_name": test_name, "reason": reason},
+            record_entry["timestamp"],
+            ordered_at,
+        )
     _append_audit_entry(
         {
             "timestamp": ordered_at,
@@ -2370,6 +2596,8 @@ def order_test(
             "test_name": test_name,
             "reason": reason,
             "status": "pending",
+            "suggestion_item_id": suggestion_item_id,
+            "review": review.model_dump(),
         }
     )
     log_event(
@@ -2391,6 +2619,7 @@ def order_test(
         test_name=test_name,
         reason=reason,
         ordered_at=ordered_at,
+        review=review,
     )
 
 
@@ -3626,6 +3855,8 @@ def _check_audit_completeness(entries: list[dict]) -> ComplianceControlResult:
                     f"{action} for letter_id={entry['letter_id']!r} is missing "
                     "voided_by or void_reason"
                 )
+
+    orphaned.extend(ai_suggestions.orphan_references(entries))
 
     passed = not orphaned
     return ComplianceControlResult(

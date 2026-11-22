@@ -70,6 +70,11 @@ class ActivityMetrics(BaseModel):
     letters_approved: int = 0
     letters_sent: int = 0
     letters_voided: int = 0
+    # How AI suggestions were handled (notes, code sets, care gaps, test orders)
+    ai_approved_as_is: int = 0
+    ai_approved_with_edits: int = 0
+    ai_possibly_unread: int = 0  # unedited approvals faster than a skim read
+    clinician_entered: int = 0
 
 
 class ActivityBucket(BaseModel):
@@ -170,6 +175,17 @@ class _Accumulator:
                 self.patients.add(entry["patient_id"])
             if entry.get("flagged"):
                 self._bump("notes_flagged_low_confidence")
+        review = entry.get("review")
+        if isinstance(review, dict):
+            outcome = review.get("outcome")
+            if outcome == "approved_as_is":
+                self._bump("ai_approved_as_is")
+            elif outcome == "approved_with_edits":
+                self._bump("ai_approved_with_edits")
+            elif outcome == "clinician_entered":
+                self._bump("clinician_entered")
+            if review.get("possibly_unread"):
+                self._bump("ai_possibly_unread")
         if action in ("approve_note", "reject_note"):
             seconds = entry.get("documentation_time_seconds")
             if isinstance(seconds, (int, float)):
