@@ -27,16 +27,16 @@ Encounters with saved, encrypted audio; a background worker (transcribe, draft, 
 
 ## Acceptance — your stop condition
 
-- [ ] A clinician can end a consultation and start the next immediately; the first reaches ready for review with no further clicks.
-- [ ] Two encounters for different patients processed at once never share content; a mismatched record is refused.
-- [ ] Stopping the worker after each stage and restarting yields exactly one transcript, note and set of suggestions.
-- [ ] External failures retry 3 times then reach needs attention, keeping the audio and creating no partial note.
-- [ ] Job-store records contain no patient name, MRN, date of birth, transcript or note text.
-- [ ] Audio files cannot be read without the key; requests without sign-in or for another encounter are refused.
-- [ ] Expired audio is deleted with an audit entry and the note is unchanged.
+- [x] A clinician can end a consultation and start the next immediately; the first reaches ready for review with no further clicks.
+- [x] Two encounters for different patients processed at once never share content; a mismatched record is refused.
+- [x] Stopping the worker after each stage and restarting yields exactly one transcript, note and set of suggestions.
+- [x] External failures retry 3 times then reach needs attention, keeping the audio and creating no partial note.
+- [x] Job-store records contain no patient name, MRN, date of birth, transcript or note text.
+- [x] Audio files cannot be read without the key; requests without sign-in or for another encounter are refused.
+- [x] Expired audio is deleted with an audit entry and the note is unchanged.
 - [x] The compliance check fails if any sign-off, authorization, approval or sending was done by the AI or system.
-- [ ] Edits survive a browser reload and show the same in a second browser.
-- [ ] Only the job-store module refers to SQLite.
+- [x] Edits survive a browser reload and show the same in a second browser.
+- [x] Only the job-store module refers to SQLite.
 - [x] Records written before encryption stay in place, unchanged and readable; nothing already in the audit trail is rewritten.
 - [x] New audit entries are encrypted at rest one entry at a time with authenticated encryption; no clinical text appears in the file in plain form.
 - [x] The audit trail stays append-only: each new entry carries a hash of the previous line, so altering, removing or reordering any entry is detected, and this check works without the decryption key.

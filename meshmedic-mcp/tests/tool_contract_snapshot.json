@@ -921,6 +921,32 @@
             "title": "Ehr System",
             "type": "string"
           },
+          "encounter_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Encounter Id"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Idempotency Key"
+          },
           "note_text": {
             "maxLength": 5000,
             "minLength": 1,
@@ -1641,6 +1667,213 @@
         "type": "object"
       }
     },
+    "get_encounter_bundle": {
+      "input": {
+        "properties": {
+          "actor_attestation": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Attestation"
+          },
+          "encounter_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Encounter Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "encounter_id"
+        ],
+        "title": "get_encounter_bundleArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "EncounterSummary": {
+            "properties": {
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "encounter_id": {
+                "title": "Encounter Id",
+                "type": "string"
+              },
+              "mrn": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Mrn"
+              },
+              "note_flagged": {
+                "title": "Note Flagged",
+                "type": "boolean"
+              },
+              "note_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Note Id"
+              },
+              "note_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Note Status"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "patient_name": {
+                "title": "Patient Name",
+                "type": "string"
+              },
+              "signed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed At"
+              },
+              "signed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed By"
+              },
+              "started_at": {
+                "title": "Started At",
+                "type": "string"
+              },
+              "started_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Started By"
+              }
+            },
+            "required": [
+              "encounter_id",
+              "ehr_system",
+              "patient_id",
+              "patient_name",
+              "mrn",
+              "started_at",
+              "started_by",
+              "note_id",
+              "note_status",
+              "note_flagged",
+              "signed_by",
+              "signed_at"
+            ],
+            "title": "EncounterSummary",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "care_gaps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Care Gaps",
+            "type": "array"
+          },
+          "code_set": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code Set"
+          },
+          "encounter": {
+            "$ref": "#/$defs/EncounterSummary"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "orders": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "suggestions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "encounter",
+          "note",
+          "code_set",
+          "suggestions",
+          "care_gaps",
+          "orders"
+        ],
+        "title": "EncounterBundle",
+        "type": "object"
+      }
+    },
     "get_pending_items_for_patient": {
       "input": {
         "properties": {
@@ -2285,6 +2518,162 @@
           "labeled_at"
         ],
         "title": "SourceLabels",
+        "type": "object"
+      }
+    },
+    "list_encounters": {
+      "input": {
+        "properties": {
+          "limit": {
+            "default": 100,
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "started_by": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started By"
+          }
+        },
+        "title": "list_encountersArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "EncounterSummary": {
+            "properties": {
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "encounter_id": {
+                "title": "Encounter Id",
+                "type": "string"
+              },
+              "mrn": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Mrn"
+              },
+              "note_flagged": {
+                "title": "Note Flagged",
+                "type": "boolean"
+              },
+              "note_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Note Id"
+              },
+              "note_status": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Note Status"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "patient_name": {
+                "title": "Patient Name",
+                "type": "string"
+              },
+              "signed_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed At"
+              },
+              "signed_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Signed By"
+              },
+              "started_at": {
+                "title": "Started At",
+                "type": "string"
+              },
+              "started_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Started By"
+              }
+            },
+            "required": [
+              "encounter_id",
+              "ehr_system",
+              "patient_id",
+              "patient_name",
+              "mrn",
+              "started_at",
+              "started_by",
+              "note_id",
+              "note_status",
+              "note_flagged",
+              "signed_by",
+              "signed_at"
+            ],
+            "title": "EncounterSummary",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "encounters": {
+            "items": {
+              "$ref": "#/$defs/EncounterSummary"
+            },
+            "title": "Encounters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "encounters"
+        ],
+        "title": "EncounterList",
         "type": "object"
       }
     },
@@ -3252,6 +3641,77 @@
         "type": "object"
       }
     },
+    "record_audio_deletion": {
+      "input": {
+        "properties": {
+          "attestation_token": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Attestation Token",
+            "type": "string"
+          },
+          "encounter_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Encounter Id",
+            "type": "string"
+          },
+          "policy_ref": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "retention_days": {
+            "maximum": 36500,
+            "minimum": 0,
+            "title": "Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "encounter_id",
+          "retention_days",
+          "policy_ref",
+          "attestation_token"
+        ],
+        "title": "record_audio_deletionArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "deleted_at": {
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "encounter_id": {
+            "title": "Encounter Id",
+            "type": "string"
+          },
+          "policy_ref": {
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "retention_days": {
+            "title": "Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "encounter_id",
+          "deleted_at",
+          "retention_days",
+          "policy_ref",
+          "recorded"
+        ],
+        "title": "AudioDeletion",
+        "type": "object"
+      }
+    },
     "record_auth_event": {
       "input": {
         "$defs": {
@@ -4189,6 +4649,91 @@
         "type": "object"
       }
     },
+    "start_encounter": {
+      "input": {
+        "properties": {
+          "actor_attestation": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Attestation"
+          },
+          "ehr_system": {
+            "enum": [
+              "epic",
+              "oracle_health"
+            ],
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "maxLength": 100,
+            "minLength": 8,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "patient_id": {
+            "minLength": 1,
+            "title": "Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ehr_system",
+          "patient_id",
+          "idempotency_key"
+        ],
+        "title": "start_encounterArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "encounter_id": {
+            "title": "Encounter Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By"
+          }
+        },
+        "required": [
+          "encounter_id",
+          "ehr_system",
+          "patient_id",
+          "started_at",
+          "started_by"
+        ],
+        "title": "Encounter",
+        "type": "object"
+      }
+    },
     "suggest_codes": {
       "input": {
         "$defs": {
@@ -4251,6 +4796,19 @@
             ],
             "default": null,
             "title": "Confidence Reason"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Idempotency Key"
           },
           "note_id": {
             "minLength": 1,

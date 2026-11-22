@@ -30,8 +30,15 @@ from logging_utils import TOOL_ERROR, log_event, new_correlation_id
 
 COOKIE = "mm_session"
 OPEN_PATHS = {"/api/auth/login", "/api/auth/me"}
-# Review tools that record the signed-in clinician's identity (actor_attestation).
-ACTOR_AWARE_TOOLS = {"approve_encounter_note", "edit_encounter_note", "reject_encounter_note"}
+# Tools that record the signed-in clinician's identity (actor_attestation),
+# and the argument the attestation is bound to.
+ACTOR_AWARE_TOOLS = {
+    "approve_encounter_note": "note_id",
+    "edit_encounter_note": "note_id",
+    "reject_encounter_note": "note_id",
+    "start_encounter": "idempotency_key",
+    "get_encounter_bundle": "encounter_id",
+}
 
 ToolCaller = Callable[[str, dict], Awaitable[dict]]
 
@@ -63,10 +70,11 @@ class BridgeAuth:
     def attest_review(self, session: Session, tool_name: str, arguments: dict) -> dict:
         """Strip any client-supplied attestation; add one for the signed-in clinician where it applies."""
         arguments = {k: v for k, v in arguments.items() if k != "actor_attestation"}
-        if tool_name in ACTOR_AWARE_TOOLS and isinstance(arguments.get("note_id"), str):
+        record_field = ACTOR_AWARE_TOOLS.get(tool_name)
+        if record_field and isinstance(arguments.get(record_field), str):
             arguments["actor_attestation"] = self.issue(
                 session.clinician_id, session.display_name, attestation.ACT_AS,
-                arguments["note_id"], attestation.ACT_AS_CONTENT,
+                arguments[record_field], attestation.ACT_AS_CONTENT,
             )
         return arguments
 

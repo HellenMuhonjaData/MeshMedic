@@ -196,7 +196,7 @@
   .plus-row textarea { min-height: 44px; }
   .small { font-size: 12px; color: var(--ink-soft); }
 </style>
-<link rel="stylesheet" href="theme.css?v=2" />
+<link rel="stylesheet" href="theme.css?v=3" />
 <script src="auth.js"></script>
 </head>
 <body>
@@ -828,6 +828,8 @@ async function startRecording() {
         return;
       }
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      // Kept so End consultation can hand the recording to background processing.
+      if (typeof rememberRecording === 'function') rememberRecording(blob);
       transcribeAudio(blob, 'recording.webm');
     };
     mediaRecorder.start();
@@ -1603,5 +1605,6 @@ openFromLink();
 </script>
 <script src="ai_review.js"></script>
 <script src="signoff.js"></script>
+<script src="queue.js"></script>
 </body>
 </html>

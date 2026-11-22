@@ -150,3 +150,15 @@ tr.current td { background: var(--accent-soft); }
 /* section dividers inside cards */
 .card hr { border-top-color: var(--line) !important; }
 #noteDecision, #sourcesPanel { border-top-color: var(--line) !important; }
+
+/* ---------- review queue (Phase 2) ---------- */
+.queue-row .meta strong { color: var(--ink); font-size: 14px; }
+.queue-row button { margin-top: 8px; }
+.badge.q-processing { background: var(--accent-soft); color: var(--accent); }
+.badge.q-capturing { background: var(--floor); color: var(--ink-soft); }
+.badge.q-needs_attention { background: var(--bad-bg); color: var(--bad); }
+.badge.q-ready_for_review { background: var(--ai-soft); color: var(--ai); }
+.badge.q-awaiting_signature { background: var(--warn-bg); color: var(--warn); }
+.badge.q-signed { background: var(--good-bg); color: var(--good); }
+.badge.q-rejected { background: var(--floor); color: var(--ink-soft); }
+#endConsultBtn { background: var(--brand-deep); border-color: var(--brand-deep); }

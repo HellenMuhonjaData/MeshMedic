@@ -10,11 +10,16 @@
   let csrfToken = null;
   let me = null;
   const nativeFetch = window.fetch.bind(window);
+  // Writes that start before sign-in has finished loading (e.g. the page's
+  // startup checks) wait for the CSRF token instead of being refused.
+  let csrfKnown;
+  const csrfReady = new Promise((resolve) => { csrfKnown = resolve; });
 
   window.fetch = async (input, options = {}) => {
     const url = typeof input === 'string' ? input : input.url;
     const method = (options.method || 'GET').toUpperCase();
     const opts = { ...options, credentials: 'same-origin' };
+    if (url.startsWith('/api/') && !url.startsWith('/api/auth/') && method !== 'GET') await csrfReady;
     if (url.startsWith('/api/') && method !== 'GET' && csrfToken) {
       const headers = new Headers(options.headers || {});
       headers.set('X-CSRF-Token', csrfToken);
@@ -148,6 +153,7 @@
       if (!res.ok) { showSignIn(); return; }
       me = await res.json();
       csrfToken = me.csrf_token;
+      csrfKnown();
       renderUser();
       window.dispatchEvent(new CustomEvent('meshmedic:signed-in', { detail: me }));
     })

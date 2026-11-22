@@ -41,6 +41,9 @@ PASSTHROUGH_TOOLS = frozenset(
         "get_attention_items",
         "check_github_issue_status",
         "run_compliance_check",
+        "start_encounter",
+        "list_encounters",
+        "get_encounter_bundle",
     }
 )
 
@@ -49,6 +52,7 @@ ATTESTED_TOOLS = frozenset(
     {
         "sign_encounter_note",
         "record_auth_event",  # web app only, attested as the web app itself
+        "record_audio_deletion",  # web app retention purge only
         "authorize_orders",
         "finalize_code_review",
         "approve_referral_for_sending",

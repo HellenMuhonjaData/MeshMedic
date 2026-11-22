@@ -12,3 +12,5 @@ test_audio.wav
 clinicians.json
 .secrets/
 audit_log.jsonl.head
+jobs.sqlite3*
+encounter_data/

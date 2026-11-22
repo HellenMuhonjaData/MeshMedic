@@ -34,6 +34,7 @@ import base64
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
@@ -43,6 +44,13 @@ import attestation
 
 FORMAT_VERSION = 2
 KEY_NAME = "audit_aes256gcm.key"
+
+# The MCP server runs tools on worker threads, so two tools can write at the
+# same moment (two background jobs recording notes, say). Every append is a
+# read-then-write of the chain tail, and a read must never see a half-written
+# line, so all access goes through one lock. One process writes the trail
+# (docs/TRANSPORT_DECISION.md), so a process-local lock is sufficient.
+_LOCK = threading.RLock()
 
 
 class AuditIntegrityError(Exception):
@@ -110,7 +118,7 @@ def _is_encrypted(obj: dict) -> bool:
     return obj.get("v") == FORMAT_VERSION and "ct" in obj
 
 
-def append(path: Path, entry: dict) -> None:
+def _append_unlocked(path: Path, entry: dict) -> None:
     """Append one entry. Raises OSError if the file can't be written, AuditIntegrityError if the trail is unsafe."""
     lines = _raw_lines(path)
     parsed = [json.loads(line) for line in lines]
@@ -137,7 +145,7 @@ def append(path: Path, entry: dict) -> None:
     _write_head(path, header["seq"], raw)
 
 
-def chain_problems(path: Path) -> list[str]:
+def _chain_problems_unlocked(path: Path) -> list[str]:
     """Structural integrity check that needs no key: chain, sequence, anchor, no plain inserts."""
     lines = _raw_lines(path)
     problems: list[str] = []
@@ -190,9 +198,9 @@ def _head_problems(path: Path, lines: list[str]) -> list[str]:
     return []
 
 
-def read_entries(path: Path) -> list[dict]:
+def _read_entries_unlocked(path: Path) -> list[dict]:
     """Every entry, oldest first, decrypted. Strict: raises AuditIntegrityError on any problem."""
-    problems = chain_problems(path)
+    problems = _chain_problems_unlocked(path)
     if problems:
         raise AuditIntegrityError("audit trail integrity check failed: " + "; ".join(problems[:5]))
     entries: list[dict] = []
@@ -211,3 +219,21 @@ def read_entries(path: Path) -> list[dict]:
             raise AuditIntegrityError(f"audit entry {obj.get('seq')} failed authenticated decryption") from exc
         entries.append(json.loads(plain))
     return entries
+
+
+def append(path: Path, entry: dict) -> None:
+    """Append one entry. Raises OSError if the file can't be written, AuditIntegrityError if the trail is unsafe."""
+    with _LOCK:
+        _append_unlocked(path, entry)
+
+
+def chain_problems(path: Path) -> list[str]:
+    """Structural integrity check that needs no key: chain, sequence, anchor, head, no plain inserts."""
+    with _LOCK:
+        return _chain_problems_unlocked(path)
+
+
+def read_entries(path: Path) -> list[dict]:
+    """Every entry, oldest first, decrypted. Strict: raises AuditIntegrityError on any problem."""
+    with _LOCK:
+        return _read_entries_unlocked(path)

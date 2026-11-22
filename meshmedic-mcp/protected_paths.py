@@ -11,6 +11,7 @@ from pathlib import Path
 
 import attestation
 import clinician_registry
+import encounter_files
 
 _PROTECTED_NAMES = {
     ".env",
@@ -19,6 +20,7 @@ _PROTECTED_NAMES = {
     "audit_log.jsonl",
     "audit_log.jsonl.head",
     "phi_readiness.signed.json",
+    "jobs.sqlite3",
     attestation.PRIVATE_KEY_NAME,
     attestation.PUBLIC_KEY_NAME,
 }
@@ -28,7 +30,7 @@ def is_protected(path: Path) -> bool:
     resolved = Path(path).resolve()
     if resolved.name in _PROTECTED_NAMES or resolved.suffix == ".pem":
         return True
-    protected_dirs = [attestation.key_dir(), Path(__file__).parent / ".secrets"]
+    protected_dirs = [attestation.key_dir(), Path(__file__).parent / ".secrets", encounter_files.data_root()]
     if any(resolved.is_relative_to(d.resolve()) for d in protected_dirs):
         return True
     return resolved == clinician_registry.registry_path().resolve()

@@ -14,6 +14,7 @@ UI shows are the real ones this session produced, not a mock.
 Run with: uv run python ui_bridge.py
 """
 
+import asyncio
 import logging
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -35,15 +36,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+import ai_services
 import attestation
+import job_store
 import runtime_config
 from bridge_auth import BridgeAuth, ToolCallError
-from note_drafting import (
-    CONFIDENCE_INSTRUCTIONS,
-    DRAFT_OUTPUT_SCHEMA,
-    DraftContractError,
-    parse_draft,
-)
+from encounter_routes import EncounterRoutes, purge_expired_audio
+from encounter_worker import EncounterWorker
 from passthrough_policy import is_passthrough_allowed
 
 ROOT = Path(__file__).parent
@@ -103,12 +102,24 @@ async def _lifespan(app: Starlette):
     await session.initialize()
     _session = session
     if os.environ.get("ANTHROPIC_API_KEY"):
-        _anthropic = anthropic.Anthropic()
+        _anthropic = ai_services.anthropic_client()
     if os.environ.get("OPENAI_API_KEY"):
-        _openai = openai.OpenAI()
+        _openai = ai_services.openai_client()
     try:
+        stop = asyncio.Event()
+        workers = [
+            asyncio.create_task(EncounterWorker(
+                jobs, invoke_tool, _transcribe_for_worker, _draft_for_worker,
+                f"worker-{i}", _bridge_logger, ToolCallError,
+            ).run_forever(stop))
+            for i in range(WORKER_COUNT)
+        ]
+        retention = asyncio.create_task(_retention_loop(stop))
         yield
     finally:
+        if "stop" in locals():
+            stop.set()
+            await asyncio.gather(*workers, retention, return_exceptions=True)
         await _stack.aclose()
 
 
@@ -135,7 +146,45 @@ async def invoke_tool(tool_name: str, arguments: dict) -> dict:
     return payload
 
 
-auth = BridgeAuth(invoke_tool, logging.getLogger("meshmedic_bridge"))
+_bridge_logger = logging.getLogger("meshmedic_bridge")
+auth = BridgeAuth(invoke_tool, _bridge_logger)
+
+# Phase 2: background processing. Job progress lives in SQLite (no clinical
+# content); the clinical record stays the audit trail.
+JOBS_DB = Path(os.environ.get("MESHMEDIC_JOBS_DB") or ROOT / "jobs.sqlite3")
+jobs = job_store.SqliteJobStore(JOBS_DB)
+encounter_api = EncounterRoutes(auth, invoke_tool, jobs, _bridge_logger)
+WORKER_COUNT = 2
+RETENTION_SWEEP_SECONDS = 3600
+
+
+async def _transcribe_for_worker(audio: bytes, filename: str, content_type: str) -> str:
+    if _openai is None:
+        raise ai_services.PermanentAIError("OPENAI_API_KEY is not set, so recordings cannot be transcribed.")
+    return await ai_services.transcribe(_openai, TRANSCRIBE_MODEL, TRANSCRIBE_VOCAB_HINT, audio, filename, content_type)
+
+
+async def _draft_for_worker(transcript: str) -> dict:
+    if _anthropic is None:
+        raise ai_services.PermanentAIError("ANTHROPIC_API_KEY is not set, so encounters cannot be drafted.")
+    draft, _usage = await ai_services.draft_encounter(
+        _anthropic, DRAFT_MODEL, DRAFT_MAX_TOKENS, DRAFT_SYSTEM_PROMPT, transcript
+    )
+    return ai_services.draft_to_dict(draft)
+
+
+async def _retention_loop(stop: asyncio.Event) -> None:
+    config = runtime_config.load_config(os.environ)
+    policy = config.retention_policy_ref or f"synthetic-prototype-{config.audio_retention_days}-day"
+    while not stop.is_set():
+        try:
+            await purge_expired_audio(invoke_tool, auth, config.audio_retention_days, policy, _bridge_logger)
+        except ToolCallError:
+            _bridge_logger.exception("audio retention sweep failed; it will run again")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=RETENTION_SWEEP_SECONDS)
+        except asyncio.TimeoutError:
+            pass  # time for the next sweep
 
 
 async def call_tool(request: Request) -> JSONResponse:
@@ -191,54 +240,12 @@ async def draft_note(request: Request) -> JSONResponse:
         return JSONResponse({"error": "transcript is required"}, status_code=400)
 
     try:
-        response = _anthropic.messages.create(
-            model=DRAFT_MODEL,
-            max_tokens=DRAFT_MAX_TOKENS,
-            system=DRAFT_SYSTEM_PROMPT + CONFIDENCE_INSTRUCTIONS,
-            output_config={
-                "effort": "low",
-                "format": {"type": "json_schema", "schema": DRAFT_OUTPUT_SCHEMA},
-            },
-            messages=[{"role": "user", "content": transcript}],
+        draft, usage = await ai_services.draft_encounter(
+            _anthropic, DRAFT_MODEL, DRAFT_MAX_TOKENS, DRAFT_SYSTEM_PROMPT, transcript
         )
-    except anthropic.AuthenticationError:
-        return JSONResponse({"error": "Anthropic API key was rejected (AuthenticationError)."}, status_code=502)
-    except anthropic.RateLimitError:
-        return JSONResponse({"error": "Rate limited by the Anthropic API. Try again shortly."}, status_code=502)
-    except anthropic.APIStatusError as exc:
-        return JSONResponse({"error": f"Anthropic API error ({exc.status_code}): {exc.message}"}, status_code=502)
-    except anthropic.APIConnectionError:
-        return JSONResponse({"error": "Could not reach the Anthropic API (network error)."}, status_code=502)
-
-    if response.stop_reason == "refusal":
-        return JSONResponse({"error": "The AI declined to draft this note. Write it yourself instead."}, status_code=502)
-    if response.stop_reason == "max_tokens":
-        return JSONResponse({"error": "The AI draft was cut off before it finished. Try again."}, status_code=502)
-
-    raw = next((b.text for b in response.content if b.type == "text"), "")
-    try:
-        draft = parse_draft(raw)
-    except DraftContractError as exc:
-        return JSONResponse({"error": f"The AI draft was malformed ({exc}). Try again."}, status_code=502)
-
-    return JSONResponse(
-        {
-            "note_text": draft.note_text,
-            "confidence": draft.confidence,
-            "confidence_reason": draft.confidence_reason,
-            "low_confidence": draft.low_confidence,
-            "codes": draft.codes,
-            "codes_confidence": draft.codes_confidence,
-            "codes_confidence_reason": draft.codes_confidence_reason,
-            "care_gaps": draft.care_gaps,
-            "test_orders": draft.test_orders,
-            "referral": draft.referral,
-            "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-            },
-        }
-    )
+    except ai_services.AIServiceError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return JSONResponse({**ai_services.draft_to_dict(draft), "usage": usage})
 
 
 async def transcribe_audio(request: Request) -> JSONResponse:
@@ -263,35 +270,18 @@ async def transcribe_audio(request: Request) -> JSONResponse:
         return JSONResponse({"error": "audio file is empty"}, status_code=400)
 
     try:
-        result = _openai.audio.transcriptions.create(
-            model=TRANSCRIBE_MODEL,
-            file=(upload.filename or "audio.webm", audio_bytes, upload.content_type or "audio/webm"),
-            prompt=TRANSCRIBE_VOCAB_HINT,
+        text = await ai_services.transcribe(
+            _openai, TRANSCRIBE_MODEL, TRANSCRIBE_VOCAB_HINT, audio_bytes,
+            upload.filename or "audio.webm", upload.content_type or "audio/webm",
         )
-    except openai.AuthenticationError:
-        return JSONResponse({"error": "OpenAI API key was rejected (AuthenticationError)."}, status_code=502)
-    except openai.RateLimitError as exc:
-        # OpenAI returns HTTP 429 for both true rate limiting and an
-        # exhausted/unfunded account ("insufficient_quota") -- the SDK maps
-        # both to RateLimitError, so the body's error code is the only way
-        # to tell "wait and retry" from "add billing" apart. Surface it.
-        body = exc.body if isinstance(exc.body, dict) else {}
-        if body.get("code") == "credit_balance_exhausted" or body.get("type") == "insufficient_quota":
-            return JSONResponse(
-                {"error": "OpenAI account has no credits. Add billing at platform.openai.com, then try again."},
-                status_code=502,
-            )
-        return JSONResponse({"error": "Rate limited by the OpenAI API. Try again shortly."}, status_code=502)
-    except openai.APIStatusError as exc:
-        return JSONResponse({"error": f"OpenAI API error ({exc.status_code}): {exc.message}"}, status_code=502)
-    except openai.APIConnectionError:
-        return JSONResponse({"error": "Could not reach the OpenAI API (network error)."}, status_code=502)
-
-    return JSONResponse({"transcript": result.text})
+    except ai_services.AIServiceError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    return JSONResponse({"transcript": text})
 
 
 routes = [
     *auth.routes(),
+    *encounter_api.routes(),
     Route("/api/tools/{tool_name}", call_tool, methods=["POST"]),
     Route("/api/draft-note", draft_note, methods=["POST"]),
     Route("/api/transcribe", transcribe_audio, methods=["POST"]),

@@ -47,6 +47,7 @@ TTL_SECONDS = 120
 ACT_AS = "act_as"  # identity for a review action; not bound to content
 SIGN_NOTE = "sign_note"  # clinician-only: sign one reviewed note
 AUTH_EVENT = "auth_event"  # the web app recording a sign-in event
+AUDIO_DELETED = "audio_deleted"  # the web app recording a retention deletion
 WEB_APP_IDENTITY = "meshmedic-web-app"
 
 

@@ -11,9 +11,10 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import Field
 
 import audit_actor
+import encounter_records
 import review_tracking
 from app_core import CONFIDENCE_THRESHOLD, _append_audit_entry, _logger, mcp
-from audit_queries import _find_note, _find_suggestion
+from audit_queries import _all_audit_entries, _find_note, _find_suggestion
 from logging_utils import (
     ACCESS_DENIED,
     TOOL_COMPLETED,
@@ -32,6 +33,7 @@ def suggest_codes(
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
     confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
     source: Literal["ai", "clinician"] = "ai",
+    idempotency_key: Annotated[str | None, Field(max_length=200)] = None,
 ) -> SuggestedCodes:
     """
     Record AI-suggested ICD-10/CPT codes for a previously generated encounter
@@ -98,11 +100,25 @@ def suggest_codes(
         )
 
     generated = note_record["generated"]
-    suggestion_id = str(uuid.uuid4())
-    suggested_at = datetime.now(timezone.utc).isoformat()
     warning = (
         f"Low confidence ({confidence:.2f}): {confidence_reason}" if flagged else None
     )
+    # Phase 2: a retried background job gets the code set it already recorded.
+    existing = encounter_records.find_by_idempotency_key(_all_audit_entries(), "suggest_codes", idempotency_key)
+    if existing is not None:
+        if existing["note_id"] != note_id:
+            raise ToolError("That idempotency_key already recorded codes for a different note.")
+        return SuggestedCodes(
+            suggestion_id=existing["suggestion_id"], note_id=note_id, patient_id=existing["patient_id"],
+            ehr_system=existing["ehr_system"], status="draft",
+            codes=[CodeSuggestion(**c) for c in existing["codes"]], confidence=existing["confidence"],
+            flagged=existing["flagged"],
+            warning=(f"Low confidence ({existing['confidence']:.2f}): {existing.get('confidence_reason')}"
+                     if existing["flagged"] else None),
+            suggested_at=existing["timestamp"],
+        )
+    suggestion_id = str(uuid.uuid4())
+    suggested_at = datetime.now(timezone.utc).isoformat()
 
     _append_audit_entry(
         {
@@ -119,6 +135,7 @@ def suggest_codes(
             "flagged": flagged,
             "confidence_reason": confidence_reason,
             "status": "draft",
+            "idempotency_key": idempotency_key,
         }
     )
     log_event(

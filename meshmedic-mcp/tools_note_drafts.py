@@ -3,8 +3,6 @@
 Split out of server.py (Phase 0, no behaviour change).
 """
 
-import attestation
-import clinician_actor
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
@@ -12,9 +10,12 @@ from typing import Annotated, Literal
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import Field
 
+import attestation
 import audit_actor
+import clinician_actor
+import encounter_records
 from app_core import CONFIDENCE_THRESHOLD, _append_audit_entry, _logger, mcp
-from audit_queries import _find_note, _find_patient
+from audit_queries import _all_audit_entries, _find_note, _find_patient
 from logging_utils import (
     ACCESS_DENIED,
     TOOL_COMPLETED,
@@ -35,6 +36,8 @@ def generate_encounter_note(
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
     confidence_reason: Annotated[str | None, Field(max_length=1000)] = None,
     source: Literal["ai", "clinician"] = "ai",
+    encounter_id: Annotated[str | None, Field(max_length=64)] = None,
+    idempotency_key: Annotated[str | None, Field(max_length=200)] = None,
 ) -> GeneratedNote:
     """
     Record an AI-drafted encounter note for a confirmed patient so it can later
@@ -103,6 +106,28 @@ def generate_encounter_note(
             "warning carries an explanation (REQ-008)."
         )
 
+    # Phase 2: file the note under its encounter (same patient only), and let a
+    # retried background job get the note it already created instead of a duplicate.
+    if encounter_id is not None or idempotency_key is not None:
+        entries = _all_audit_entries()
+        if encounter_id is not None:
+            encounter = encounter_records.find_encounter(entries, encounter_id)
+            if encounter is None:
+                raise ResourceNotFoundError(f"No encounter {encounter_id!r}.")
+            if (encounter["ehr_system"], encounter["patient_id"]) != (ehr_system, patient_id):
+                raise ToolError("This encounter belongs to a different patient; the note was not recorded.")
+        existing = encounter_records.find_by_idempotency_key(entries, "generate_note", idempotency_key)
+        if existing is not None:
+            if existing.get("encounter_id") != encounter_id or existing["patient_id"] != patient_id:
+                raise ToolError("That idempotency_key already recorded a note for a different encounter or patient.")
+            return GeneratedNote(
+                note_id=existing["note_id"], patient_id=existing["patient_id"], ehr_system=existing["ehr_system"],
+                status="draft", note_text=existing["note_text"], generated_at=existing["timestamp"],
+                confidence=existing["confidence"], flagged=existing["flagged"],
+                warning=(f"Low confidence ({existing['confidence']:.2f}): {existing.get('confidence_reason')}"
+                         if existing["flagged"] else None),
+            )
+
     note_id = str(uuid.uuid4())
     generated_at = datetime.now(timezone.utc).isoformat()
     warning = (
@@ -124,6 +149,8 @@ def generate_encounter_note(
             "flagged": flagged,
             "confidence_reason": confidence_reason,
             "status": "draft",
+            "encounter_id": encounter_id,
+            "idempotency_key": idempotency_key,
         }
     )
     log_event(

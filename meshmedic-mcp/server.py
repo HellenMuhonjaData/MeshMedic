@@ -18,6 +18,7 @@ import models
 import runtime_config
 import tools_codes
 import tools_compliance
+import tools_encounters
 import tools_gap_priority
 import tools_gaps
 import tools_github
@@ -28,6 +29,7 @@ import tools_note_signoff
 import tools_orders
 import tools_patient
 import tools_referrals
+import tools_retention
 import tools_suggestions
 from app_core import _logger, mcp
 from logging_utils import SERVER_STARTED, log_event, new_correlation_id
@@ -38,6 +40,7 @@ for _module in (
     models,
     audit_queries,
     tools_codes,
+    tools_encounters,
     tools_compliance,
     tools_gap_priority,
     tools_gaps,
@@ -49,6 +52,7 @@ for _module in (
     tools_orders,
     tools_patient,
     tools_referrals,
+    tools_retention,
     tools_suggestions,
 ):
     globals().update({k: v for k, v in vars(_module).items() if not k.startswith("__")})
