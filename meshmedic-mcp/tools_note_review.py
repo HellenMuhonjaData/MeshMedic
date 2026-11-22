@@ -3,6 +3,8 @@
 Split out of server.py (Phase 0, no behaviour change).
 """
 
+import attestation
+import clinician_actor
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -53,6 +55,7 @@ def _speed_up_suggestions(documentation_time_seconds: float) -> list[str] | None
 def approve_encounter_note(
     note_id: Annotated[str, Field(min_length=1)],
     edited_note_text: Annotated[str | None, Field(max_length=5000)] = None,
+    actor_attestation: Annotated[str | None, Field(max_length=4000)] = None,
 ) -> ReviewedNote:
     """
     Record a clinician's approval of a previously generated draft note
@@ -86,6 +89,11 @@ def approve_encounter_note(
         note_id=note_id,
     )
 
+    # Signed-in clinician (attested by the web app) or, without an attestation, unverified.
+    try:
+        actor = clinician_actor.resolve_review_actor(actor_attestation, note_id)
+    except attestation.AttestationError as exc:
+        raise ToolError(f"Refused: {exc}.") from exc
     record = _find_note(note_id)
     if record is None:
         log_event(
@@ -168,6 +176,8 @@ def approve_encounter_note(
         {
             "timestamp": reviewed_at,
             "action": "approve_note",
+            "stage": "reviewed",
+            "actor": actor,
             "note_id": note_id,
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],
@@ -208,6 +218,7 @@ def approve_encounter_note(
 def reject_encounter_note(
     note_id: Annotated[str, Field(min_length=1)],
     feedback: Annotated[str, Field(min_length=1, max_length=2000)],
+    actor_attestation: Annotated[str | None, Field(max_length=4000)] = None,
 ) -> ReviewedNote:
     """
     Record a clinician's rejection of a previously generated draft note,
@@ -234,6 +245,11 @@ def reject_encounter_note(
         note_id=note_id,
     )
 
+    # Signed-in clinician (attested by the web app) or, without an attestation, unverified.
+    try:
+        actor = clinician_actor.resolve_review_actor(actor_attestation, note_id)
+    except attestation.AttestationError as exc:
+        raise ToolError(f"Refused: {exc}.") from exc
     record = _find_note(note_id)
     if record is None:
         log_event(
@@ -306,6 +322,7 @@ def reject_encounter_note(
         {
             "timestamp": reviewed_at,
             "action": "reject_note",
+            "actor": actor,
             "note_id": note_id,
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],

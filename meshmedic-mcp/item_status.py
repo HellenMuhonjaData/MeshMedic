@@ -36,7 +36,8 @@ ItemKind = Literal["note", "code_set", "care_gap", "suggestion", "test_order", "
 _TRANSITIONS: dict[str, tuple[ItemKind, str, Status]] = {
     "generate_note": ("note", "note_id", "ai_suggested"),
     "edit_note": ("note", "note_id", "clinician_reviewed"),
-    "approve_note": ("note", "note_id", "approved"),
+    "approve_note": ("note", "note_id", "approved"),  # legacy; Phase 1 reviews carry stage=reviewed
+    "sign_note": ("note", "note_id", "signed"),
     "reject_note": ("note", "note_id", "rejected"),
     "suggest_codes": ("code_set", "suggestion_id", "ai_suggested"),
     "approve_codes": ("code_set", "suggestion_id", "approved"),
@@ -66,6 +67,8 @@ def derive_statuses(entries: list[dict]) -> dict[tuple[str, str], Status]:
             kind, id_field, status = transition
             item_id = entry.get(id_field)
             if item_id:
+                if action == "approve_note" and entry.get("stage") == "reviewed":
+                    status = "clinician_reviewed"
                 statuses[(kind, item_id)] = status
         # Accepting an AI suggestion moves that suggestion to approved.
         if action in ("identify_care_gap", "order_test") and entry.get("suggestion_item_id"):

@@ -14,6 +14,8 @@ from starlette.testclient import TestClient
 
 import app_core
 import audit_actor
+import auth_sessions
+import bridge_auth
 import encounters
 import item_status
 import passthrough_policy
@@ -39,23 +41,34 @@ def _entries():
 
 
 def test_every_existing_tool_is_still_reachable_from_the_browser():
-    assert set(SNAPSHOT["tools"]) <= passthrough_policy.PASSTHROUGH_TOOLS
+    assert set(SNAPSHOT["tools"]) - passthrough_policy.ATTESTED_TOOLS <= passthrough_policy.PASSTHROUGH_TOOLS
 
 
 def test_no_attested_tool_is_on_the_passthrough_list():
     assert not (passthrough_policy.PASSTHROUGH_TOOLS & passthrough_policy.ATTESTED_TOOLS)
 
 
-@pytest.mark.parametrize("tool", ["sign_encounter_note", "authorize_orders", "some_future_tool"])
-def test_passthrough_refuses_unlisted_and_attested_tools_without_touching_the_audit_trail(tool):
+def _signed_in_client(monkeypatch):
+    """A web-app client with a signed-in session (Phase 1 requires one for every /api/ call)."""
+    state = auth_sessions.AuthState()
+    monkeypatch.setattr(ui_bridge.auth, "state", state)
+    session = state.create_session("dr.test", "Dr. Test")
     client = TestClient(ui_bridge.app)  # no lifespan: the MCP server is never started
+    client.cookies.set(bridge_auth.COOKIE, session.token)
+    client.headers["X-CSRF-Token"] = session.csrf_token
+    return client
+
+
+@pytest.mark.parametrize("tool", ["sign_encounter_note", "authorize_orders", "some_future_tool"])
+def test_passthrough_refuses_unlisted_and_attested_tools_without_touching_the_audit_trail(tool, monkeypatch):
+    client = _signed_in_client(monkeypatch)
     response = client.post(f"/api/tools/{tool}", json={"note_id": "x"})
     assert response.status_code == 403
     assert _entries() == []
 
 
-def test_passthrough_still_forwards_listed_tools():
-    client = TestClient(ui_bridge.app)  # no lifespan, so a listed tool gets "not connected", not 403
+def test_passthrough_still_forwards_listed_tools(monkeypatch):
+    client = _signed_in_client(monkeypatch)  # no MCP server running, so a listed tool gets "not connected"
     assert client.post("/api/tools/run_compliance_check", json={}).status_code == 503
 
 
@@ -188,7 +201,7 @@ def test_statuses_follow_the_audit_trail():
                               suggestion_item_id=item.item_id)
     server.approve_encounter_note(note_id=note.note_id)
     statuses = item_status.derive_statuses(_entries())
-    assert statuses[("note", note.note_id)] == "approved"
+    assert statuses[("note", note.note_id)] == "clinician_reviewed"
     assert statuses[("suggestion", item.item_id)] == "approved"
     assert statuses[("test_order", order.order_id)] == "approved"
 

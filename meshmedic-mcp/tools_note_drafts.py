@@ -3,6 +3,8 @@
 Split out of server.py (Phase 0, no behaviour change).
 """
 
+import attestation
+import clinician_actor
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Literal
@@ -152,6 +154,7 @@ def generate_encounter_note(
 def edit_encounter_note(
     note_id: Annotated[str, Field(min_length=1)],
     edited_note_text: Annotated[str, Field(min_length=1, max_length=5000)],
+    actor_attestation: Annotated[str | None, Field(max_length=4000)] = None,
 ) -> EditedNote:
     """
     Save a clinician's edit to a draft note while they're still reviewing
@@ -179,6 +182,11 @@ def edit_encounter_note(
         note_id=note_id,
     )
 
+    # Signed-in clinician (attested by the web app) or, without an attestation, unverified.
+    try:
+        actor = clinician_actor.resolve_review_actor(actor_attestation, note_id)
+    except attestation.AttestationError as exc:
+        raise ToolError(f"Refused: {exc}.") from exc
     record = _find_note(note_id)
     if record is None:
         log_event(
@@ -234,6 +242,7 @@ def edit_encounter_note(
         {
             "timestamp": edited_at,
             "action": "edit_note",
+            "actor": actor,
             "note_id": note_id,
             "ehr_system": generated["ehr_system"],
             "patient_id": generated["patient_id"],

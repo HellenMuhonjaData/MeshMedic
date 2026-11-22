@@ -30,6 +30,7 @@ from logging_utils import (
 )
 from models import PatientMatch, SearchResult, TranscriptFileRead
 from progress_utils import emit_progress
+import protected_paths
 from roots_guard import resolve_within_roots
 from sample_patients import SAMPLE_PATIENTS
 
@@ -374,6 +375,10 @@ def read_transcript_file(
         tool="read_transcript_file",
     )
     read_at = datetime.now(timezone.utc).isoformat()
+
+    # Secrets are refused even inside a declared root (protected_paths.py).
+    if resolved is not None and protected_paths.is_protected(resolved):
+        resolved = None
 
     if resolved is None:
         _append_audit_entry(

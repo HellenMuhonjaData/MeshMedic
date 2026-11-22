@@ -308,6 +308,19 @@
     "approve_encounter_note": {
       "input": {
         "properties": {
+          "actor_attestation": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Attestation"
+          },
           "edited_note_text": {
             "anyOf": [
               {
@@ -780,6 +793,19 @@
     "edit_encounter_note": {
       "input": {
         "properties": {
+          "actor_attestation": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Attestation"
+          },
           "edited_note_text": {
             "maxLength": 5000,
             "minLength": 1,
@@ -1358,6 +1384,11 @@
               "notes_rejected": {
                 "default": 0,
                 "title": "Notes Rejected",
+                "type": "integer"
+              },
+              "notes_signed": {
+                "default": 0,
+                "title": "Notes Signed",
                 "type": "integer"
               },
               "patient_searches": {
@@ -3221,6 +3252,106 @@
         "type": "object"
       }
     },
+    "record_auth_event": {
+      "input": {
+        "$defs": {
+          "AuthEvent": {
+            "properties": {
+              "clinician_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 64,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Clinician Id"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "maxLength": 300,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Detail"
+              },
+              "event_id": {
+                "maxLength": 64,
+                "minLength": 8,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "login_success",
+                  "login_failure",
+                  "logout",
+                  "reauth_success",
+                  "reauth_failure",
+                  "reauth_locked"
+                ],
+                "title": "Kind",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "kind"
+            ],
+            "title": "AuthEvent",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "attestation_token": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Attestation Token",
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/$defs/AuthEvent"
+          }
+        },
+        "required": [
+          "event",
+          "attestation_token"
+        ],
+        "title": "record_auth_eventArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "event_id",
+          "kind",
+          "recorded"
+        ],
+        "title": "RecordedAuthEvent",
+        "type": "object"
+      }
+    },
     "record_test_result": {
       "input": {
         "properties": {
@@ -3492,6 +3623,19 @@
     "reject_encounter_note": {
       "input": {
         "properties": {
+          "actor_attestation": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Attestation"
+          },
           "feedback": {
             "maxLength": 2000,
             "minLength": 1,
@@ -3963,6 +4107,85 @@
           "message"
         ],
         "title": "SearchResult",
+        "type": "object"
+      }
+    },
+    "sign_encounter_note": {
+      "input": {
+        "properties": {
+          "attestation_token": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Attestation Token",
+            "type": "string"
+          },
+          "content_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "content_hash",
+          "attestation_token"
+        ],
+        "title": "sign_encounter_noteArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "signed_at": {
+            "title": "Signed At",
+            "type": "string"
+          },
+          "signed_by_clinician_id": {
+            "title": "Signed By Clinician Id",
+            "type": "string"
+          },
+          "signed_by_name": {
+            "title": "Signed By Name",
+            "type": "string"
+          },
+          "status": {
+            "const": "signed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "content_hash",
+          "signed_by_clinician_id",
+          "signed_by_name",
+          "signed_at"
+        ],
+        "title": "SignedNote",
         "type": "object"
       }
     },

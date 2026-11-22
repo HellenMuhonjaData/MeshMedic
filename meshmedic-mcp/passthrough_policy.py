@@ -46,7 +46,13 @@ PASSTHROUGH_TOOLS = frozenset(
 
 # Named here so a future edit that adds one to PASSTHROUGH_TOOLS fails tests.
 ATTESTED_TOOLS = frozenset(
-    {"sign_encounter_note", "authorize_orders", "finalize_code_review", "approve_referral_for_sending"}
+    {
+        "sign_encounter_note",
+        "record_auth_event",  # web app only, attested as the web app itself
+        "authorize_orders",
+        "finalize_code_review",
+        "approve_referral_for_sending",
+    }
 )
 
 

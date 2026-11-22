@@ -14,6 +14,7 @@ UI shows are the real ones this session produced, not a mock.
 Run with: uv run python ui_bridge.py
 """
 
+import logging
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -34,7 +35,9 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+import attestation
 import runtime_config
+from bridge_auth import BridgeAuth, ToolCallError
 from note_drafting import (
     CONFIDENCE_INSTRUCTIONS,
     DRAFT_OUTPUT_SCHEMA,
@@ -86,6 +89,9 @@ _openai: openai.OpenAI | None = None
 @asynccontextmanager
 async def _lifespan(app: Starlette):
     global _session, _stack, _anthropic, _openai
+    # The web app holds the attestation signing key; the MCP server it starts
+    # reads only the public half. Create the pair before starting the server.
+    attestation.load_or_create_private_key()
     _stack = AsyncExitStack()
     # --no-sync: this venv already has everything server.py needs, and a
     # `uv run` sync at spawn time can collide with another already-running
@@ -112,15 +118,35 @@ def _result_payload(content: list[Any]) -> dict[str, Any]:
     return {"text": "\n".join(text_parts) if text_parts else ""}
 
 
+async def invoke_tool(tool_name: str, arguments: dict) -> dict:
+    """Call one MCP tool; a tool-level failure becomes ToolCallError(400) with the tool's own message."""
+    if _session is None:
+        raise ToolCallError(503, "MCP session is not connected yet")
+    try:
+        result = await _session.call_tool(tool_name, arguments)
+    except Exception as exc:
+        raise ToolCallError(502, f"{type(exc).__name__}: {exc}") from exc
+    payload = result.structured_content
+    if payload is None:
+        payload = _result_payload(result.content)
+    if result.is_error:
+        message = payload.get("text") if isinstance(payload, dict) else str(payload)
+        raise ToolCallError(400, message or "Tool call failed")
+    return payload
+
+
+auth = BridgeAuth(invoke_tool, logging.getLogger("meshmedic_bridge"))
+
+
 async def call_tool(request: Request) -> JSONResponse:
-    """Proxy one POST /api/tools/<name> call straight to the real MCP tool.
+    """Proxy one POST /api/tools/<name> call to the real MCP tool, for a signed-in clinician.
 
     The request body (JSON object, `{}` if empty) becomes the tool's
-    arguments unchanged -- this bridge does not validate or reshape them,
-    the tool's own schema does. A tool-level failure (ToolError,
-    ResourceNotFoundError) comes back from the SDK as `is_error=True` rather
-    than an exception, so it is reported here as a 400 with the tool's own
-    message, not swallowed and not raised as a bridge-side 500.
+    arguments -- the tool's own schema validates them. Two things are
+    changed on the way: tools not on the pass-through allowlist are refused
+    (403) before reaching the server, and for note review tools the bridge
+    attaches an attestation of the signed-in clinician's identity (any
+    client-supplied one is discarded), so the audit trail records who acted.
     """
     tool_name = request.path_params["tool_name"]
     if not is_passthrough_allowed(tool_name):
@@ -132,26 +158,15 @@ async def call_tool(request: Request) -> JSONResponse:
         )
     try:
         arguments = await request.json()
-    except Exception:
+    except ValueError:
         arguments = {}
-
-    if _session is None:
-        return JSONResponse({"error": "MCP session is not connected yet"}, status_code=503)
-
+    if not isinstance(arguments, dict):
+        arguments = {}
+    arguments = auth.attest_review(request.state.session, tool_name, arguments)
     try:
-        result = await _session.call_tool(tool_name, arguments)
-    except Exception as exc:
-        return JSONResponse({"error": f"{type(exc).__name__}: {exc}"}, status_code=502)
-
-    payload = result.structured_content
-    if payload is None:
-        payload = _result_payload(result.content)
-
-    if result.is_error:
-        message = payload.get("text") if isinstance(payload, dict) else str(payload)
-        return JSONResponse({"error": message or "Tool call failed"}, status_code=400)
-
-    return JSONResponse(payload)
+        return JSONResponse(await invoke_tool(tool_name, arguments))
+    except ToolCallError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=exc.status)
 
 
 async def draft_note(request: Request) -> JSONResponse:
@@ -276,6 +291,7 @@ async def transcribe_audio(request: Request) -> JSONResponse:
 
 
 routes = [
+    *auth.routes(),
     Route("/api/tools/{tool_name}", call_tool, methods=["POST"]),
     Route("/api/draft-note", draft_note, methods=["POST"]),
     Route("/api/transcribe", transcribe_audio, methods=["POST"]),
@@ -289,11 +305,20 @@ async def _no_stale_ui(request: Request, call_next):
     return response
 
 
+async def _require_session(request: Request, call_next):
+    """Every /api/ route except sign-in needs a session, and a CSRF token for writes."""
+    refusal = auth.guard(request)
+    if refusal is not None:
+        return refusal
+    return await call_next(request)
+
+
 middleware = [
     # Pages and styles must always be revalidated: without this the browser
     # may reuse a cached copy of the UI after it changes (heuristic caching).
     Middleware(BaseHTTPMiddleware, dispatch=_no_stale_ui),
     Middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:8420", "http://localhost:8420"], allow_methods=["*"], allow_headers=["*"]),
+    Middleware(BaseHTTPMiddleware, dispatch=_require_session),
 ]
 
 app = Starlette(routes=routes, middleware=middleware, lifespan=_lifespan)

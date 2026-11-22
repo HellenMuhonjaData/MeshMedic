@@ -197,6 +197,7 @@
   .small { font-size: 12px; color: var(--ink-soft); }
 </style>
 <link rel="stylesheet" href="theme.css?v=2" />
+<script src="auth.js"></script>
 </head>
 <body>
 <header>
@@ -274,9 +275,14 @@
       <div id="noteDecision" style="display:none; margin-top:14px; border-top:1px solid var(--line); padding-top:14px;">
         <label>Review the note — edit anything that's wrong, then approve. Edits are recorded against the AI's version.</label>
         <textarea id="editedNoteText"></textarea>
-        <button onclick="approveNote()">Approve</button>
+        <button onclick="approveNote()">Mark reviewed</button>
         <button class="secondary" onclick="rejectNote()">Reject</button>
         <div id="decisionResult" class="result" style="display:none"></div>
+        <div id="signPanel" style="display:none; margin-top:12px;">
+          <p class="small" style="margin:0 0 4px;">Signing finalizes and locks this note. It is a clinician-only action: you sign this one note, as it was reviewed.</p>
+          <button id="signNoteBtn" onclick="signActiveNote()">Sign note</button>
+          <div id="signResult" class="result" style="display:none"></div>
+        </div>
       </div>
       <div class="small">Active note: <span class="id-pill" id="activeNote">none</span></div>
 
@@ -610,6 +616,7 @@ function applyFormFields(f) {
   document.getElementById('draftStatus').textContent = '';
   // Code rows, AI gap suggestions and test rows belong to one patient each.
   if (typeof restoreReviewState === 'function') restoreReviewState();
+  if (typeof renderSignPanel === 'function') renderSignPanel();
   document.getElementById('transcribeStatus').textContent =
     'Record live from the mic, or upload a pre-recorded clip. Recording again appends to what\'s already here.';
 }
@@ -971,6 +978,7 @@ async function approveNote() {
   try {
     const data = await callTool('approve_encounter_note', args);
     showResult('decisionResult', true, `${reviewSummary(data.review)}\n\n${JSON.stringify(data, null, 2)}`);
+    onNoteReviewed(data);
     loadSourceLabels();
   } catch (e) {
     showResult('decisionResult', false, e.message);
@@ -1594,5 +1602,6 @@ fillSendMethods(document.getElementById('letterSendMethod'));
 openFromLink();
 </script>
 <script src="ai_review.js"></script>
+<script src="signoff.js"></script>
 </body>
 </html>

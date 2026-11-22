@@ -9,3 +9,5 @@ epic_fhir_private_key.pem
 .env
 ui_bridge.log
 test_audio.wav
+clinicians.json
+.secrets/

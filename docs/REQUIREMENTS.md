@@ -190,7 +190,7 @@ Fulfilled by: STORY-021
 
 ### REQ-025 — Safety · must
 
-Real patient data is refused until the PHI readiness sign-off is complete. Raw audio is encrypted, access-restricted, deleted on a configurable retention schedule separate from clinical notes, and every deletion is logged.
+Real patient data is refused until the PHI readiness sign-off is complete. Raw audio is encrypted, access-restricted, deleted on a configurable retention schedule separate from clinical notes, and every deletion is logged. The audit trail is encrypted at rest while staying append-only, preserving existing records, and remaining fully verifiable.
 
 Fulfilled by: STORY-013, STORY-015
 

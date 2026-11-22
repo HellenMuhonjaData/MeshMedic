@@ -175,3 +175,21 @@ def _all_audit_entries() -> list[dict]:
         return []
     with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
+
+
+def used_attestation_nonces() -> set[str]:
+    """Every attestation nonce already recorded, so a replayed attestation is refused (Phase 1)."""
+    nonces = set()
+    for entry in _all_audit_entries():
+        actor = entry.get("actor")
+        if isinstance(actor, dict) and actor.get("attestation_nonce"):
+            nonces.add(actor["attestation_nonce"])
+    return nonces
+
+
+def find_note_signature(note_id: str) -> dict | None:
+    """The sign_note entry for a note, if it has been signed."""
+    for entry in _all_audit_entries():
+        if entry.get("action") == "sign_note" and entry.get("note_id") == note_id:
+            return entry
+    return None

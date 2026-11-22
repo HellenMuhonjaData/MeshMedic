@@ -35,6 +35,7 @@ _ACTION_COUNTERS = {
     "search_ehr_patient": "patient_searches",
     "generate_note": "notes_drafted",
     "approve_note": "notes_approved",
+    "sign_note": "notes_signed",
     "reject_note": "notes_rejected",
     "suggest_codes": "code_sets_suggested",
     "approve_codes": "code_sets_approved",
@@ -57,6 +58,7 @@ class ActivityMetrics(BaseModel):
     notes_flagged_low_confidence: int = 0
     notes_approved: int = 0
     notes_rejected: int = 0
+    notes_signed: int = 0
     avg_documentation_seconds: float | None = None
     notes_over_time_target: int = 0
     code_sets_suggested: int = 0

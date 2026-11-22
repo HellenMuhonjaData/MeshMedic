@@ -24,6 +24,7 @@ import tools_github
 import tools_insight
 import tools_note_drafts
 import tools_note_review
+import tools_note_signoff
 import tools_orders
 import tools_patient
 import tools_referrals
@@ -44,6 +45,7 @@ for _module in (
     tools_insight,
     tools_note_drafts,
     tools_note_review,
+    tools_note_signoff,
     tools_orders,
     tools_patient,
     tools_referrals,

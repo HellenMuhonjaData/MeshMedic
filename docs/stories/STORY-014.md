@@ -22,11 +22,11 @@ Clinician sign-in with session and CSRF protection; short-lived signed attestati
 
 ## Acceptance — your stop condition
 
-- [ ] Signing without an attestation is refused, including when called directly as an AI client, and nothing is written.
-- [ ] Expired, reused, wrong-action, wrong-record and wrong-content attestations are each refused.
-- [ ] Signing a note that is not reviewed, or changed after review, is refused.
-- [ ] A signed note records clinician ID, time and content fingerprint; later edits are refused.
-- [ ] Signing twice with the same request does nothing the second time.
-- [ ] There is no way to sign several notes in one action.
-- [ ] Not signed in returns 401, missing CSRF returns 403, five wrong PINs locks re-authentication with an audit entry.
-- [ ] Older approved notes show as approved (legacy, unsigned).
+- [x] Signing without an attestation is refused, including when called directly as an AI client, and nothing is written.
+- [x] Expired, reused, wrong-action, wrong-record and wrong-content attestations are each refused.
+- [x] Signing a note that is not reviewed, or changed after review, is refused.
+- [x] A signed note records clinician ID, time and content fingerprint; later edits are refused.
+- [x] Signing twice with the same request does nothing the second time.
+- [x] There is no way to sign several notes in one action.
+- [x] Not signed in returns 401, missing CSRF returns 403, five wrong PINs locks re-authentication with an audit entry.
+- [ ] Older approved notes show as approved (legacy, unsigned). _(Status is derived correctly in item_status.py; the label is shown in the review queue, which arrives in Phase 2.)_
