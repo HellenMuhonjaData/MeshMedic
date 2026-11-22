@@ -10,6 +10,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 import attention_items
+import app_core
 import server
 
 GRACE = ("epic", "epic-pt-10293847")
@@ -17,13 +18,13 @@ GRACE = ("epic", "epic-pt-10293847")
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 def _entries():
-    if not server.AUDIT_LOG_PATH.exists():
+    if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with server.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -206,12 +207,12 @@ def test_no_note_text_is_returned():
 
 def test_audit_write_failure_returns_nothing():
     _note()
-    os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD)
+    os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD)
     try:
         with pytest.raises(ToolError, match="audit trail"):
             server.get_attention_items(category="notes_awaiting_review")
     finally:
-        os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
+        os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
     assert not [e for e in _entries() if e["action"] == attention_items.VIEW_ACTION]
 
 

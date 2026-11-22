@@ -147,3 +147,85 @@ Fulfilled by: STORY-010
 The system must provide a visual interface for clinicians to interact with AI-generated content.
 
 _Not yet fulfilled by any story._
+
+## Asynchronous Clinical Workflow Copilot
+
+Added 2026-11-22 for the approved async-copilot plan (Phases 0-8).
+
+### REQ-019 — Safety · must
+
+Only an authenticated clinician can sign a clinical note, authorize an order, finalize code decisions or approve a referral for sending. AI clients and background processing can never perform these actions, and the server enforces this.
+
+Fulfilled by: STORY-013, STORY-014, STORY-018
+
+### REQ-020 — Functional · must
+
+After a consultation ends, the system processes the recording in the background (transcript, note, codes, care gaps, follow-up) so the clinician can move to the next patient without waiting.
+
+Fulfilled by: STORY-015
+
+### REQ-021 — Safety · must
+
+Each patient encounter is an independent session; recordings, notes and recommendations are never mixed between patients.
+
+Fulfilled by: STORY-015
+
+### REQ-022 — Functional · must
+
+Processed encounters enter a clinician review queue that shows attention items (missing information, contradictions, unsupported statements) first, keeps the full note visible, and never allows bulk signing.
+
+Fulfilled by: STORY-016
+
+### REQ-023 — Reliability · must
+
+Drafts and review progress are saved on the server so a clinician can leave an encounter and return without losing work.
+
+Fulfilled by: STORY-015
+
+### REQ-024 — Functional · should
+
+A dashboard shows encounters processed, notes awaiting review, signed notes, outstanding orders and pending referrals, plus active review time and notes unsigned at the end of the clinic day.
+
+Fulfilled by: STORY-021
+
+### REQ-025 — Safety · must
+
+Real patient data is refused until the PHI readiness sign-off is complete. Raw audio is encrypted, access-restricted, deleted on a configurable retention schedule separate from clinical notes, and every deletion is logged.
+
+Fulfilled by: STORY-013, STORY-015
+
+### REQ-026 — Functional · must
+
+AI-drafted notes are structured into HPI, ROS, Examination and Assessment/Plan, and flag missing or unclear information instead of inventing it.
+
+Fulfilled by: STORY-016
+
+### REQ-027 — Functional · must
+
+Each suggested ICD-10 code shows its rationale, verified supporting evidence and the model's self-reported confidence, and can be approved, edited or rejected individually.
+
+Fulfilled by: STORY-017
+
+### REQ-028 — Functional · must
+
+Care gaps are identified from chart data and the encounter, each with its source (rule and chart evidence, or transcript quote), and every accept or dismiss is audited.
+
+Fulfilled by: STORY-019
+
+### REQ-029 — Safety · must
+
+AI may propose tests and follow-ups, but no order takes effect until an authenticated clinician authorizes it with an indication; identity, indication and time are recorded, and urgent orders can always be authorized directly.
+
+Fulfilled by: STORY-018
+
+### REQ-030 — Functional · must
+
+Referral letters are drafted by AI only from signed clinical documentation, with unsupported statements flagged and clinician approval required before sending.
+
+Fulfilled by: STORY-020
+
+### REQ-031 — Safety · must
+
+Model-generated confidence is never treated as validated clinical accuracy and never removes or shortens clinician review.
+
+Fulfilled by: STORY-016, STORY-017

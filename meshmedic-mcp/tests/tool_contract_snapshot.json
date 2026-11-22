@@ -1,0 +1,4347 @@
+{
+  "prompts": [
+    "prepare-encounter-note"
+  ],
+  "resource_templates": [
+    "ehr://{ehr_system}/patient/{patient_id}/chart"
+  ],
+  "tools": {
+    "address_care_gap": {
+      "input": {
+        "properties": {
+          "gap_id": {
+            "minLength": 1,
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "resolution": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Resolution",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "resolution"
+        ],
+        "title": "address_care_gapArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "addressed_at": {
+            "title": "Addressed At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "gap_id": {
+            "title": "Gap Id",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "resolution": {
+            "title": "Resolution",
+            "type": "string"
+          },
+          "status": {
+            "const": "addressed",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "description",
+          "resolution",
+          "addressed_at"
+        ],
+        "title": "AddressedCareGap",
+        "type": "object"
+      }
+    },
+    "approve_codes": {
+      "input": {
+        "$defs": {
+          "CodeSuggestion": {
+            "properties": {
+              "code": {
+                "maxLength": 20,
+                "minLength": 1,
+                "title": "Code",
+                "type": "string"
+              },
+              "code_system": {
+                "enum": [
+                  "icd-10",
+                  "cpt"
+                ],
+                "title": "Code System",
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "code_system",
+              "description"
+            ],
+            "title": "CodeSuggestion",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "edited_codes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/CodeSuggestion"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Edited Codes"
+          },
+          "suggestion_id": {
+            "minLength": 1,
+            "title": "Suggestion Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suggestion_id"
+        ],
+        "title": "approve_codesArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "CodeSuggestion": {
+            "properties": {
+              "code": {
+                "maxLength": 20,
+                "minLength": 1,
+                "title": "Code",
+                "type": "string"
+              },
+              "code_system": {
+                "enum": [
+                  "icd-10",
+                  "cpt"
+                ],
+                "title": "Code System",
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "code_system",
+              "description"
+            ],
+            "title": "CodeSuggestion",
+            "type": "object"
+          },
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "codes": {
+            "items": {
+              "$ref": "#/$defs/CodeSuggestion"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReviewRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reviewed_at": {
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestion_id": {
+            "title": "Suggestion Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suggestion_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "codes",
+          "feedback",
+          "reviewed_at"
+        ],
+        "title": "ReviewedCodes",
+        "type": "object"
+      }
+    },
+    "approve_encounter_note": {
+      "input": {
+        "properties": {
+          "edited_note_text": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Edited Note Text"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id"
+        ],
+        "title": "approve_encounter_noteArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "documentation_time_seconds": {
+            "title": "Documentation Time Seconds",
+            "type": "number"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "exceeded_target": {
+            "title": "Exceeded Target",
+            "type": "boolean"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "note_text": {
+            "title": "Note Text",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReviewRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reviewed_at": {
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "note_text",
+          "feedback",
+          "reviewed_at",
+          "documentation_time_seconds",
+          "exceeded_target",
+          "suggestions"
+        ],
+        "title": "ReviewedNote",
+        "type": "object"
+      }
+    },
+    "approve_referral_letter": {
+      "input": {
+        "properties": {
+          "approved_by": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "edited_letter_text": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Edited Letter Text"
+          },
+          "letter_id": {
+            "minLength": 1,
+            "title": "Letter Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "letter_id",
+          "approved_by"
+        ],
+        "title": "approve_referral_letterArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "letter_id": {
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "letter_text": {
+            "title": "Letter Text",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "send_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "handed_to_patient",
+                  "mail",
+                  "fax",
+                  "email",
+                  "patient_portal",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Send Method"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent At"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent By"
+          },
+          "specialty": {
+            "title": "Specialty",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "ready_to_send",
+              "sent",
+              "voided"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Void Reason"
+          },
+          "voided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided At"
+          },
+          "voided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided By"
+          }
+        },
+        "required": [
+          "letter_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "specialty",
+          "letter_text",
+          "generated_at",
+          "approved_at",
+          "approved_by"
+        ],
+        "title": "ReferralLetter",
+        "type": "object"
+      }
+    },
+    "check_github_issue_status": {
+      "input": {
+        "properties": {
+          "issue_number": {
+            "minimum": 1,
+            "title": "Issue Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "issue_number"
+        ],
+        "title": "check_github_issue_statusArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "found": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Found"
+          },
+          "is_pull_request": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Pull Request"
+          },
+          "issue_number": {
+            "title": "Issue Number",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "issue_number",
+          "ok",
+          "found",
+          "state",
+          "title",
+          "is_pull_request",
+          "error",
+          "checked_at"
+        ],
+        "title": "GitHubIssueStatus",
+        "type": "object"
+      }
+    },
+    "edit_encounter_note": {
+      "input": {
+        "properties": {
+          "edited_note_text": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Edited Note Text",
+            "type": "string"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "edited_note_text"
+        ],
+        "title": "edit_encounter_noteArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "edited_at": {
+            "title": "Edited At",
+            "type": "string"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "note_text": {
+            "title": "Note Text",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "draft",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "note_text",
+          "edited_at"
+        ],
+        "title": "EditedNote",
+        "type": "object"
+      }
+    },
+    "fetch_patient_from_ehr": {
+      "input": {
+        "properties": {
+          "ehr_system": {
+            "enum": [
+              "epic",
+              "oracle_health"
+            ],
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "fhir_patient_id": {
+            "minLength": 1,
+            "title": "Fhir Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ehr_system",
+          "fhir_patient_id"
+        ],
+        "title": "fetch_patient_from_ehrArguments",
+        "type": "object"
+      },
+      "output": null
+    },
+    "generate_encounter_note": {
+      "input": {
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "confidence_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confidence Reason"
+          },
+          "ehr_system": {
+            "enum": [
+              "epic",
+              "oracle_health"
+            ],
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "note_text": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Note Text",
+            "type": "string"
+          },
+          "patient_id": {
+            "minLength": 1,
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "source": {
+            "default": "ai",
+            "enum": [
+              "ai",
+              "clinician"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "transcript": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Transcript",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ehr_system",
+          "patient_id",
+          "transcript",
+          "note_text",
+          "confidence"
+        ],
+        "title": "generate_encounter_noteArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "flagged": {
+            "title": "Flagged",
+            "type": "boolean"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "note_text": {
+            "title": "Note Text",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "draft",
+            "title": "Status",
+            "type": "string"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "note_text",
+          "generated_at",
+          "confidence",
+          "flagged",
+          "warning"
+        ],
+        "title": "GeneratedNote",
+        "type": "object"
+      }
+    },
+    "generate_referral_letter": {
+      "input": {
+        "properties": {
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          },
+          "referral_reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Referral Reason",
+            "type": "string"
+          },
+          "referring_clinician": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Referring Clinician",
+            "type": "string"
+          },
+          "specialty": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Specialty",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "specialty",
+          "referral_reason",
+          "referring_clinician"
+        ],
+        "title": "generate_referral_letterArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "letter_id": {
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "letter_text": {
+            "title": "Letter Text",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "send_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "handed_to_patient",
+                  "mail",
+                  "fax",
+                  "email",
+                  "patient_portal",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Send Method"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent At"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent By"
+          },
+          "specialty": {
+            "title": "Specialty",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "ready_to_send",
+              "sent",
+              "voided"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Void Reason"
+          },
+          "voided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided At"
+          },
+          "voided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided By"
+          }
+        },
+        "required": [
+          "letter_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "specialty",
+          "letter_text",
+          "generated_at",
+          "approved_at",
+          "approved_by"
+        ],
+        "title": "ReferralLetter",
+        "type": "object"
+      }
+    },
+    "get_activity_summary": {
+      "input": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "maximum": 90,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Count"
+          },
+          "period": {
+            "default": "day",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "utc_offset_minutes": {
+            "default": 0,
+            "maximum": 840,
+            "minimum": -840,
+            "title": "Utc Offset Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "get_activity_summaryArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ActivityBucket": {
+            "properties": {
+              "end": {
+                "title": "End",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "metrics": {
+                "$ref": "#/$defs/ActivityMetrics"
+              },
+              "start": {
+                "title": "Start",
+                "type": "string"
+              }
+            },
+            "required": [
+              "label",
+              "start",
+              "end",
+              "metrics"
+            ],
+            "title": "ActivityBucket",
+            "type": "object"
+          },
+          "ActivityMetrics": {
+            "properties": {
+              "ai_approved_as_is": {
+                "default": 0,
+                "title": "Ai Approved As Is",
+                "type": "integer"
+              },
+              "ai_approved_with_edits": {
+                "default": 0,
+                "title": "Ai Approved With Edits",
+                "type": "integer"
+              },
+              "ai_possibly_unread": {
+                "default": 0,
+                "title": "Ai Possibly Unread",
+                "type": "integer"
+              },
+              "avg_documentation_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Avg Documentation Seconds"
+              },
+              "care_gaps_addressed": {
+                "default": 0,
+                "title": "Care Gaps Addressed",
+                "type": "integer"
+              },
+              "care_gaps_flagged": {
+                "default": 0,
+                "title": "Care Gaps Flagged",
+                "type": "integer"
+              },
+              "clinician_entered": {
+                "default": 0,
+                "title": "Clinician Entered",
+                "type": "integer"
+              },
+              "code_sets_approved": {
+                "default": 0,
+                "title": "Code Sets Approved",
+                "type": "integer"
+              },
+              "code_sets_rejected": {
+                "default": 0,
+                "title": "Code Sets Rejected",
+                "type": "integer"
+              },
+              "code_sets_suggested": {
+                "default": 0,
+                "title": "Code Sets Suggested",
+                "type": "integer"
+              },
+              "letters_approved": {
+                "default": 0,
+                "title": "Letters Approved",
+                "type": "integer"
+              },
+              "letters_prepared": {
+                "default": 0,
+                "title": "Letters Prepared",
+                "type": "integer"
+              },
+              "letters_sent": {
+                "default": 0,
+                "title": "Letters Sent",
+                "type": "integer"
+              },
+              "letters_voided": {
+                "default": 0,
+                "title": "Letters Voided",
+                "type": "integer"
+              },
+              "notes_approved": {
+                "default": 0,
+                "title": "Notes Approved",
+                "type": "integer"
+              },
+              "notes_drafted": {
+                "default": 0,
+                "title": "Notes Drafted",
+                "type": "integer"
+              },
+              "notes_flagged_low_confidence": {
+                "default": 0,
+                "title": "Notes Flagged Low Confidence",
+                "type": "integer"
+              },
+              "notes_over_time_target": {
+                "default": 0,
+                "title": "Notes Over Time Target",
+                "type": "integer"
+              },
+              "notes_rejected": {
+                "default": 0,
+                "title": "Notes Rejected",
+                "type": "integer"
+              },
+              "patient_searches": {
+                "default": 0,
+                "title": "Patient Searches",
+                "type": "integer"
+              },
+              "patients_seen": {
+                "default": 0,
+                "title": "Patients Seen",
+                "type": "integer"
+              },
+              "tests_ordered": {
+                "default": 0,
+                "title": "Tests Ordered",
+                "type": "integer"
+              },
+              "tests_resulted": {
+                "default": 0,
+                "title": "Tests Resulted",
+                "type": "integer"
+              }
+            },
+            "title": "ActivityMetrics",
+            "type": "object"
+          },
+          "PendingWork": {
+            "properties": {
+              "letters_awaiting_approval": {
+                "title": "Letters Awaiting Approval",
+                "type": "integer"
+              },
+              "letters_ready_to_send": {
+                "title": "Letters Ready To Send",
+                "type": "integer"
+              },
+              "notes_awaiting_review": {
+                "title": "Notes Awaiting Review",
+                "type": "integer"
+              },
+              "open_care_gaps": {
+                "title": "Open Care Gaps",
+                "type": "integer"
+              },
+              "tests_awaiting_results": {
+                "title": "Tests Awaiting Results",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "notes_awaiting_review",
+              "open_care_gaps",
+              "tests_awaiting_results",
+              "letters_awaiting_approval",
+              "letters_ready_to_send"
+            ],
+            "title": "PendingWork",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/$defs/ActivityBucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "pending": {
+            "$ref": "#/$defs/PendingWork"
+          },
+          "period": {
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "skipped_entries": {
+            "title": "Skipped Entries",
+            "type": "integer"
+          },
+          "totals": {
+            "$ref": "#/$defs/ActivityMetrics"
+          },
+          "utc_offset_minutes": {
+            "title": "Utc Offset Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period",
+          "utc_offset_minutes",
+          "buckets",
+          "totals",
+          "pending",
+          "skipped_entries",
+          "generated_at"
+        ],
+        "title": "ActivitySummary",
+        "type": "object"
+      }
+    },
+    "get_attention_items": {
+      "input": {
+        "properties": {
+          "category": {
+            "enum": [
+              "notes_awaiting_review",
+              "open_care_gaps",
+              "tests_awaiting_results",
+              "letters_awaiting_approval",
+              "letters_ready_to_send"
+            ],
+            "title": "Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "title": "get_attention_itemsArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "AttentionItem": {
+            "properties": {
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "item_id": {
+                "title": "Item Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "note",
+                  "gap",
+                  "order",
+                  "letter"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "low_confidence": {
+                "default": false,
+                "title": "Low Confidence",
+                "type": "boolean"
+              },
+              "mrn": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Mrn"
+              },
+              "needs": {
+                "title": "Needs",
+                "type": "string"
+              },
+              "note_id": {
+                "title": "Note Id",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "patient_name": {
+                "title": "Patient Name",
+                "type": "string"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "waiting_hours": {
+                "title": "Waiting Hours",
+                "type": "number"
+              },
+              "waiting_since": {
+                "title": "Waiting Since",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "item_id",
+              "note_id",
+              "patient_id",
+              "ehr_system",
+              "patient_name",
+              "mrn",
+              "summary",
+              "needs",
+              "waiting_since",
+              "waiting_hours"
+            ],
+            "title": "AttentionItem",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "category": {
+            "enum": [
+              "notes_awaiting_review",
+              "open_care_gaps",
+              "tests_awaiting_results",
+              "letters_awaiting_approval",
+              "letters_ready_to_send"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/AttentionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "listed_at": {
+            "title": "Listed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "items",
+          "count",
+          "listed_at"
+        ],
+        "title": "AttentionList",
+        "type": "object"
+      }
+    },
+    "get_pending_items_for_patient": {
+      "input": {
+        "properties": {
+          "patient_id": {
+            "minLength": 1,
+            "title": "Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_id"
+        ],
+        "title": "get_pending_items_for_patientArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "OpenCareGapSummary": {
+            "properties": {
+              "description": {
+                "title": "Description",
+                "type": "string"
+              },
+              "gap_id": {
+                "title": "Gap Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "gap_id",
+              "description"
+            ],
+            "title": "OpenCareGapSummary",
+            "type": "object"
+          },
+          "ResultedTestOrder": {
+            "properties": {
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "note_id": {
+                "title": "Note Id",
+                "type": "string"
+              },
+              "order_id": {
+                "title": "Order Id",
+                "type": "string"
+              },
+              "ordered_at": {
+                "title": "Ordered At",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "result_text": {
+                "title": "Result Text",
+                "type": "string"
+              },
+              "resulted_at": {
+                "title": "Resulted At",
+                "type": "string"
+              },
+              "status": {
+                "const": "resulted",
+                "title": "Status",
+                "type": "string"
+              },
+              "test_name": {
+                "title": "Test Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "order_id",
+              "note_id",
+              "patient_id",
+              "ehr_system",
+              "status",
+              "test_name",
+              "reason",
+              "result_text",
+              "ordered_at",
+              "resulted_at"
+            ],
+            "title": "ResultedTestOrder",
+            "type": "object"
+          },
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          },
+          "TestOrder": {
+            "properties": {
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "note_id": {
+                "title": "Note Id",
+                "type": "string"
+              },
+              "order_id": {
+                "title": "Order Id",
+                "type": "string"
+              },
+              "ordered_at": {
+                "title": "Ordered At",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "reason": {
+                "title": "Reason",
+                "type": "string"
+              },
+              "review": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReviewRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "status": {
+                "const": "pending",
+                "title": "Status",
+                "type": "string"
+              },
+              "test_name": {
+                "title": "Test Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "order_id",
+              "note_id",
+              "patient_id",
+              "ehr_system",
+              "status",
+              "test_name",
+              "reason",
+              "ordered_at"
+            ],
+            "title": "TestOrder",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "open_care_gaps": {
+            "items": {
+              "$ref": "#/$defs/OpenCareGapSummary"
+            },
+            "title": "Open Care Gaps",
+            "type": "array"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "pending_orders": {
+            "items": {
+              "$ref": "#/$defs/TestOrder"
+            },
+            "title": "Pending Orders",
+            "type": "array"
+          },
+          "resulted_orders": {
+            "items": {
+              "$ref": "#/$defs/ResultedTestOrder"
+            },
+            "title": "Resulted Orders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "patient_id",
+          "open_care_gaps",
+          "pending_orders",
+          "resulted_orders",
+          "checked_at"
+        ],
+        "title": "PendingItemsSummary",
+        "type": "object"
+      }
+    },
+    "identify_care_gaps": {
+      "input": {
+        "$defs": {
+          "CareGapInput": {
+            "properties": {
+              "confidence": {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "confidence_reason": {
+                "anyOf": [
+                  {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Reason"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              },
+              "suggestion_item_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Suggestion Item Id"
+              }
+            },
+            "required": [
+              "description",
+              "confidence"
+            ],
+            "title": "CareGapInput",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "gaps": {
+            "items": {
+              "$ref": "#/$defs/CareGapInput"
+            },
+            "minItems": 1,
+            "title": "Gaps",
+            "type": "array"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "gaps"
+        ],
+        "title": "identify_care_gapsArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "CareGap": {
+            "properties": {
+              "confidence": {
+                "title": "Confidence",
+                "type": "number"
+              },
+              "description": {
+                "title": "Description",
+                "type": "string"
+              },
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "flagged": {
+                "title": "Flagged",
+                "type": "boolean"
+              },
+              "gap_id": {
+                "title": "Gap Id",
+                "type": "string"
+              },
+              "identified_at": {
+                "title": "Identified At",
+                "type": "string"
+              },
+              "note_id": {
+                "title": "Note Id",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "review": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ReviewRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "status": {
+                "const": "flagged",
+                "title": "Status",
+                "type": "string"
+              },
+              "warning": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Warning"
+              }
+            },
+            "required": [
+              "gap_id",
+              "note_id",
+              "patient_id",
+              "ehr_system",
+              "status",
+              "description",
+              "confidence",
+              "flagged",
+              "warning",
+              "identified_at"
+            ],
+            "title": "CareGap",
+            "type": "object"
+          },
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "result": {
+            "items": {
+              "$ref": "#/$defs/CareGap"
+            },
+            "title": "Result",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "identify_care_gapsOutput",
+        "type": "object"
+      }
+    },
+    "label_information_sources": {
+      "input": {
+        "properties": {
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id"
+        ],
+        "title": "label_information_sourcesArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "LabeledItem": {
+            "properties": {
+              "item_id": {
+                "title": "Item Id",
+                "type": "string"
+              },
+              "item_type": {
+                "enum": [
+                  "code_suggestion",
+                  "care_gap"
+                ],
+                "title": "Item Type",
+                "type": "string"
+              },
+              "review_status": {
+                "title": "Review Status",
+                "type": "string"
+              },
+              "source": {
+                "enum": [
+                  "encounter_supported",
+                  "ai_generated",
+                  "clinician_entered"
+                ],
+                "title": "Source",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_type",
+              "item_id",
+              "text",
+              "source",
+              "review_status"
+            ],
+            "title": "LabeledItem",
+            "type": "object"
+          },
+          "LabeledSentence": {
+            "properties": {
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Evidence"
+              },
+              "index": {
+                "title": "Index",
+                "type": "integer"
+              },
+              "source": {
+                "enum": [
+                  "encounter_supported",
+                  "ai_generated",
+                  "clinician_entered"
+                ],
+                "title": "Source",
+                "type": "string"
+              },
+              "support_ratio": {
+                "title": "Support Ratio",
+                "type": "number"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "text",
+              "source",
+              "support_ratio",
+              "evidence"
+            ],
+            "title": "LabeledSentence",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/LabeledItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "labeled_at": {
+            "title": "Labeled At",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "note_status": {
+            "enum": [
+              "draft",
+              "approved",
+              "rejected"
+            ],
+            "title": "Note Status",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "sentences": {
+            "items": {
+              "$ref": "#/$defs/LabeledSentence"
+            },
+            "title": "Sentences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "note_status",
+          "sentences",
+          "items",
+          "counts",
+          "labeled_at"
+        ],
+        "title": "SourceLabels",
+        "type": "object"
+      }
+    },
+    "list_referral_letters": {
+      "input": {
+        "properties": {
+          "patient_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Patient Id"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "draft",
+                  "ready_to_send",
+                  "sent",
+                  "voided"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          }
+        },
+        "title": "list_referral_lettersArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ReferralLetter": {
+            "properties": {
+              "approved_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Approved At"
+              },
+              "approved_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Approved By"
+              },
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "generated_at": {
+                "title": "Generated At",
+                "type": "string"
+              },
+              "letter_id": {
+                "title": "Letter Id",
+                "type": "string"
+              },
+              "letter_text": {
+                "title": "Letter Text",
+                "type": "string"
+              },
+              "note_id": {
+                "title": "Note Id",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              },
+              "send_method": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "handed_to_patient",
+                      "mail",
+                      "fax",
+                      "email",
+                      "patient_portal",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Send Method"
+              },
+              "sent_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Sent At"
+              },
+              "sent_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Sent By"
+              },
+              "specialty": {
+                "title": "Specialty",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "draft",
+                  "ready_to_send",
+                  "sent",
+                  "voided"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "void_reason": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Void Reason"
+              },
+              "voided_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Voided At"
+              },
+              "voided_by": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Voided By"
+              }
+            },
+            "required": [
+              "letter_id",
+              "note_id",
+              "patient_id",
+              "ehr_system",
+              "status",
+              "specialty",
+              "letter_text",
+              "generated_at",
+              "approved_at",
+              "approved_by"
+            ],
+            "title": "ReferralLetter",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "letters": {
+            "items": {
+              "$ref": "#/$defs/ReferralLetter"
+            },
+            "title": "Letters",
+            "type": "array"
+          },
+          "listed_at": {
+            "title": "Listed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "letters",
+          "count",
+          "listed_at"
+        ],
+        "title": "ReferralLetterList",
+        "type": "object"
+      }
+    },
+    "mark_referral_letter_sent": {
+      "input": {
+        "properties": {
+          "letter_id": {
+            "minLength": 1,
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "send_method": {
+            "enum": [
+              "handed_to_patient",
+              "mail",
+              "fax",
+              "email",
+              "patient_portal",
+              "other"
+            ],
+            "title": "Send Method",
+            "type": "string"
+          },
+          "sent_by": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Sent By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "letter_id",
+          "sent_by",
+          "send_method"
+        ],
+        "title": "mark_referral_letter_sentArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "letter_id": {
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "letter_text": {
+            "title": "Letter Text",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "send_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "handed_to_patient",
+                  "mail",
+                  "fax",
+                  "email",
+                  "patient_portal",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Send Method"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent At"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent By"
+          },
+          "specialty": {
+            "title": "Specialty",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "ready_to_send",
+              "sent",
+              "voided"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Void Reason"
+          },
+          "voided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided At"
+          },
+          "voided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided By"
+          }
+        },
+        "required": [
+          "letter_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "specialty",
+          "letter_text",
+          "generated_at",
+          "approved_at",
+          "approved_by"
+        ],
+        "title": "ReferralLetter",
+        "type": "object"
+      }
+    },
+    "order_test": {
+      "input": {
+        "properties": {
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "suggestion_item_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Suggestion Item Id"
+          },
+          "test_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Test Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "test_name",
+          "reason"
+        ],
+        "title": "order_testArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "ordered_at": {
+            "title": "Ordered At",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReviewRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "status": {
+            "const": "pending",
+            "title": "Status",
+            "type": "string"
+          },
+          "test_name": {
+            "title": "Test Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "test_name",
+          "reason",
+          "ordered_at"
+        ],
+        "title": "TestOrder",
+        "type": "object"
+      }
+    },
+    "prioritize_care_gaps": {
+      "input": {
+        "properties": {
+          "patient_id": {
+            "minLength": 1,
+            "title": "Patient Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_id"
+        ],
+        "title": "prioritize_care_gapsArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "OpenCareGapSummary": {
+            "properties": {
+              "description": {
+                "title": "Description",
+                "type": "string"
+              },
+              "gap_id": {
+                "title": "Gap Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "gap_id",
+              "description"
+            ],
+            "title": "OpenCareGapSummary",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "degraded": {
+            "title": "Degraded",
+            "type": "boolean"
+          },
+          "degraded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Reason"
+          },
+          "gap_count": {
+            "title": "Gap Count",
+            "type": "integer"
+          },
+          "open_gaps": {
+            "items": {
+              "$ref": "#/$defs/OpenCareGapSummary"
+            },
+            "title": "Open Gaps",
+            "type": "array"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "prioritized_at": {
+            "title": "Prioritized At",
+            "type": "string"
+          },
+          "ranking_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Text"
+          }
+        },
+        "required": [
+          "patient_id",
+          "gap_count",
+          "open_gaps",
+          "degraded",
+          "degraded_reason",
+          "ranking_text",
+          "prioritized_at"
+        ],
+        "title": "CareGapPriorityResult",
+        "type": "object"
+      }
+    },
+    "read_transcript_file": {
+      "input": {
+        "properties": {
+          "file_path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "title": "read_transcript_fileArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "denied": {
+            "title": "Denied",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "file_path": {
+            "title": "File Path",
+            "type": "string"
+          },
+          "read_at": {
+            "title": "Read At",
+            "type": "string"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript"
+          }
+        },
+        "required": [
+          "file_path",
+          "denied",
+          "transcript",
+          "error",
+          "read_at"
+        ],
+        "title": "TranscriptFileRead",
+        "type": "object"
+      }
+    },
+    "record_ai_suggestions": {
+      "input": {
+        "$defs": {
+          "CareGapInput": {
+            "properties": {
+              "confidence": {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "title": "Confidence",
+                "type": "number"
+              },
+              "confidence_reason": {
+                "anyOf": [
+                  {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Confidence Reason"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              },
+              "suggestion_item_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Suggestion Item Id"
+              }
+            },
+            "required": [
+              "description",
+              "confidence"
+            ],
+            "title": "CareGapInput",
+            "type": "object"
+          },
+          "ReferralSuggestion": {
+            "properties": {
+              "reason": {
+                "maxLength": 1000,
+                "minLength": 1,
+                "title": "Reason",
+                "type": "string"
+              },
+              "specialty": {
+                "maxLength": 100,
+                "minLength": 1,
+                "title": "Specialty",
+                "type": "string"
+              }
+            },
+            "required": [
+              "specialty",
+              "reason"
+            ],
+            "title": "ReferralSuggestion",
+            "type": "object"
+          },
+          "TestOrderSuggestion": {
+            "properties": {
+              "reason": {
+                "maxLength": 500,
+                "minLength": 1,
+                "title": "Reason",
+                "type": "string"
+              },
+              "test_name": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Test Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "test_name",
+              "reason"
+            ],
+            "title": "TestOrderSuggestion",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "care_gaps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/CareGapInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Care Gaps"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          },
+          "referral": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReferralSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "test_orders": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/TestOrderSuggestion"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Test Orders"
+          }
+        },
+        "required": [
+          "note_id"
+        ],
+        "title": "record_ai_suggestionsArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "SuggestedItem": {
+            "properties": {
+              "fields": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": "Fields",
+                "type": "object"
+              },
+              "item_id": {
+                "title": "Item Id",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "care_gap",
+                  "test_order",
+                  "referral"
+                ],
+                "title": "Kind",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_id",
+              "kind",
+              "fields"
+            ],
+            "title": "SuggestedItem",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/SuggestedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "recorded_at",
+          "items"
+        ],
+        "title": "RecordedSuggestions",
+        "type": "object"
+      }
+    },
+    "record_test_result": {
+      "input": {
+        "properties": {
+          "order_id": {
+            "minLength": 1,
+            "title": "Order Id",
+            "type": "string"
+          },
+          "result_text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Result Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "result_text"
+        ],
+        "title": "record_test_resultArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "ordered_at": {
+            "title": "Ordered At",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "result_text": {
+            "title": "Result Text",
+            "type": "string"
+          },
+          "resulted_at": {
+            "title": "Resulted At",
+            "type": "string"
+          },
+          "status": {
+            "const": "resulted",
+            "title": "Status",
+            "type": "string"
+          },
+          "test_name": {
+            "title": "Test Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "test_name",
+          "reason",
+          "result_text",
+          "ordered_at",
+          "resulted_at"
+        ],
+        "title": "ResultedTestOrder",
+        "type": "object"
+      }
+    },
+    "reject_codes": {
+      "input": {
+        "properties": {
+          "feedback": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Feedback",
+            "type": "string"
+          },
+          "suggestion_id": {
+            "minLength": 1,
+            "title": "Suggestion Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suggestion_id",
+          "feedback"
+        ],
+        "title": "reject_codesArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "CodeSuggestion": {
+            "properties": {
+              "code": {
+                "maxLength": 20,
+                "minLength": 1,
+                "title": "Code",
+                "type": "string"
+              },
+              "code_system": {
+                "enum": [
+                  "icd-10",
+                  "cpt"
+                ],
+                "title": "Code System",
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "code_system",
+              "description"
+            ],
+            "title": "CodeSuggestion",
+            "type": "object"
+          },
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "codes": {
+            "items": {
+              "$ref": "#/$defs/CodeSuggestion"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReviewRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reviewed_at": {
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestion_id": {
+            "title": "Suggestion Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suggestion_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "codes",
+          "feedback",
+          "reviewed_at"
+        ],
+        "title": "ReviewedCodes",
+        "type": "object"
+      }
+    },
+    "reject_encounter_note": {
+      "input": {
+        "properties": {
+          "feedback": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Feedback",
+            "type": "string"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "feedback"
+        ],
+        "title": "reject_encounter_noteArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ReviewRecord": {
+            "properties": {
+              "changes": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Changes",
+                "type": "array"
+              },
+              "edited": {
+                "title": "Edited",
+                "type": "boolean"
+              },
+              "outcome": {
+                "enum": [
+                  "approved_as_is",
+                  "approved_with_edits",
+                  "clinician_entered"
+                ],
+                "title": "Outcome",
+                "type": "string"
+              },
+              "possibly_unread": {
+                "title": "Possibly Unread",
+                "type": "boolean"
+              },
+              "review_seconds": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Review Seconds"
+              },
+              "source": {
+                "enum": [
+                  "ai",
+                  "clinician"
+                ],
+                "title": "Source",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "outcome",
+              "edited",
+              "changes",
+              "review_seconds",
+              "possibly_unread"
+            ],
+            "title": "ReviewRecord",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "documentation_time_seconds": {
+            "title": "Documentation Time Seconds",
+            "type": "number"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "exceeded_target": {
+            "title": "Exceeded Target",
+            "type": "boolean"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "note_text": {
+            "title": "Note Text",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ReviewRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reviewed_at": {
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "note_text",
+          "feedback",
+          "reviewed_at",
+          "documentation_time_seconds",
+          "exceeded_target",
+          "suggestions"
+        ],
+        "title": "ReviewedNote",
+        "type": "object"
+      }
+    },
+    "request_citation": {
+      "input": {
+        "properties": {
+          "claimed_excerpt": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Claimed Excerpt",
+            "type": "string"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "claimed_excerpt"
+        ],
+        "title": "request_citationArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "claimed_excerpt": {
+            "title": "Claimed Excerpt",
+            "type": "string"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "end_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Offset"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "matched_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Text"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "title": "Requested At",
+            "type": "string"
+          },
+          "start_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Offset"
+          }
+        },
+        "required": [
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "claimed_excerpt",
+          "found",
+          "matched_text",
+          "start_offset",
+          "end_offset",
+          "explanation",
+          "requested_at"
+        ],
+        "title": "CitationResult",
+        "type": "object"
+      }
+    },
+    "run_compliance_check": {
+      "input": {
+        "properties": {},
+        "title": "run_compliance_checkArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ComplianceControlResult": {
+            "properties": {
+              "control_id": {
+                "title": "Control Id",
+                "type": "string"
+              },
+              "description": {
+                "title": "Description",
+                "type": "string"
+              },
+              "detail": {
+                "title": "Detail",
+                "type": "string"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "control_id",
+              "description",
+              "passed",
+              "detail"
+            ],
+            "title": "ComplianceControlResult",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "all_passed": {
+            "title": "All Passed",
+            "type": "boolean"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "controls": {
+            "items": {
+              "$ref": "#/$defs/ComplianceControlResult"
+            },
+            "title": "Controls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checked_at",
+          "controls",
+          "all_passed"
+        ],
+        "title": "ComplianceCheckResult",
+        "type": "object"
+      }
+    },
+    "search_ehr_patient": {
+      "input": {
+        "properties": {
+          "date_of_birth": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Date Of Birth"
+          },
+          "ehr_system": {
+            "enum": [
+              "epic",
+              "oracle_health"
+            ],
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Name"
+          },
+          "max_results": {
+            "default": 5,
+            "maximum": 5,
+            "minimum": 1,
+            "title": "Max Results",
+            "type": "integer"
+          },
+          "mrn": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mrn"
+          }
+        },
+        "required": [
+          "ehr_system"
+        ],
+        "title": "search_ehr_patientArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "PatientMatch": {
+            "properties": {
+              "date_of_birth": {
+                "title": "Date Of Birth",
+                "type": "string"
+              },
+              "ehr_system": {
+                "title": "Ehr System",
+                "type": "string"
+              },
+              "first_name": {
+                "title": "First Name",
+                "type": "string"
+              },
+              "last_name": {
+                "title": "Last Name",
+                "type": "string"
+              },
+              "mrn": {
+                "title": "Mrn",
+                "type": "string"
+              },
+              "patient_id": {
+                "title": "Patient Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mrn",
+              "first_name",
+              "last_name",
+              "date_of_birth",
+              "ehr_system",
+              "patient_id"
+            ],
+            "title": "PatientMatch",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/$defs/PatientMatch"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "matches",
+          "count",
+          "message"
+        ],
+        "title": "SearchResult",
+        "type": "object"
+      }
+    },
+    "suggest_codes": {
+      "input": {
+        "$defs": {
+          "CodeSuggestion": {
+            "properties": {
+              "code": {
+                "maxLength": 20,
+                "minLength": 1,
+                "title": "Code",
+                "type": "string"
+              },
+              "code_system": {
+                "enum": [
+                  "icd-10",
+                  "cpt"
+                ],
+                "title": "Code System",
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "code_system",
+              "description"
+            ],
+            "title": "CodeSuggestion",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "codes": {
+            "items": {
+              "$ref": "#/$defs/CodeSuggestion"
+            },
+            "minItems": 1,
+            "title": "Codes",
+            "type": "array"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "confidence_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confidence Reason"
+          },
+          "note_id": {
+            "minLength": 1,
+            "title": "Note Id",
+            "type": "string"
+          },
+          "source": {
+            "default": "ai",
+            "enum": [
+              "ai",
+              "clinician"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note_id",
+          "codes",
+          "confidence"
+        ],
+        "title": "suggest_codesArguments",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "CodeSuggestion": {
+            "properties": {
+              "code": {
+                "maxLength": 20,
+                "minLength": 1,
+                "title": "Code",
+                "type": "string"
+              },
+              "code_system": {
+                "enum": [
+                  "icd-10",
+                  "cpt"
+                ],
+                "title": "Code System",
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 300,
+                "minLength": 1,
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "code_system",
+              "description"
+            ],
+            "title": "CodeSuggestion",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "codes": {
+            "items": {
+              "$ref": "#/$defs/CodeSuggestion"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "flagged": {
+            "title": "Flagged",
+            "type": "boolean"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "draft",
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_at": {
+            "title": "Suggested At",
+            "type": "string"
+          },
+          "suggestion_id": {
+            "title": "Suggestion Id",
+            "type": "string"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
+          }
+        },
+        "required": [
+          "suggestion_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "codes",
+          "confidence",
+          "flagged",
+          "warning",
+          "suggested_at"
+        ],
+        "title": "SuggestedCodes",
+        "type": "object"
+      }
+    },
+    "void_referral_letter": {
+      "input": {
+        "properties": {
+          "letter_id": {
+            "minLength": 1,
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "void_reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Void Reason",
+            "type": "string"
+          },
+          "voided_by": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Voided By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "letter_id",
+          "voided_by",
+          "void_reason"
+        ],
+        "title": "void_referral_letterArguments",
+        "type": "object"
+      },
+      "output": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "ehr_system": {
+            "title": "Ehr System",
+            "type": "string"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "letter_id": {
+            "title": "Letter Id",
+            "type": "string"
+          },
+          "letter_text": {
+            "title": "Letter Text",
+            "type": "string"
+          },
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "send_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "handed_to_patient",
+                  "mail",
+                  "fax",
+                  "email",
+                  "patient_portal",
+                  "other"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Send Method"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent At"
+          },
+          "sent_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sent By"
+          },
+          "specialty": {
+            "title": "Specialty",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "ready_to_send",
+              "sent",
+              "voided"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Void Reason"
+          },
+          "voided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided At"
+          },
+          "voided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voided By"
+          }
+        },
+        "required": [
+          "letter_id",
+          "note_id",
+          "patient_id",
+          "ehr_system",
+          "status",
+          "specialty",
+          "letter_text",
+          "generated_at",
+          "approved_at",
+          "approved_by"
+        ],
+        "title": "ReferralLetter",
+        "type": "object"
+      }
+    }
+  }
+}

@@ -19,7 +19,12 @@ from mcp_types import (
 )
 
 import github_client
+import app_core
 import server
+import tools_github
+import tools_note_drafts
+import tools_note_review
+import tools_patient
 
 
 def _run(coro):
@@ -65,13 +70,13 @@ class _FakeCtx:
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 def _read_audit_entries():
-    if not server.AUDIT_LOG_PATH.exists():
+    if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with server.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -280,9 +285,9 @@ def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(
     monkeypatch,
 ):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=30)])
-    )
+    fake_datetime = _fixed_datetime([t0, t0 + timedelta(seconds=30)])
+    monkeypatch.setattr(tools_note_drafts, "datetime", fake_datetime)
+    monkeypatch.setattr(tools_note_review, "datetime", fake_datetime)
 
     note = _generate_note()
     reviewed = server.approve_encounter_note(note_id=note.note_id)
@@ -297,13 +302,11 @@ def test_approve_encounter_note_under_target_has_no_suggestions_and_logs_time(
 
 def test_approve_encounter_note_at_target_boundary_is_not_exceeded(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        server,
-        "datetime",
-        _fixed_datetime(
+    fake_datetime = _fixed_datetime(
             [t0, t0 + timedelta(seconds=server.REVIEW_TIME_TARGET_SECONDS)]
-        ),
-    )
+        )
+    monkeypatch.setattr(tools_note_drafts, "datetime", fake_datetime)
+    monkeypatch.setattr(tools_note_review, "datetime", fake_datetime)
 
     note = _generate_note()
     reviewed = server.approve_encounter_note(note_id=note.note_id)
@@ -315,9 +318,9 @@ def test_approve_encounter_note_at_target_boundary_is_not_exceeded(monkeypatch):
 
 def test_approve_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)])
-    )
+    fake_datetime = _fixed_datetime([t0, t0 + timedelta(seconds=150)])
+    monkeypatch.setattr(tools_note_drafts, "datetime", fake_datetime)
+    monkeypatch.setattr(tools_note_review, "datetime", fake_datetime)
 
     note = _generate_note()
     reviewed = server.approve_encounter_note(note_id=note.note_id)
@@ -332,9 +335,9 @@ def test_approve_encounter_note_over_target_returns_speed_up_suggestions(monkeyp
 
 def test_reject_encounter_note_over_target_returns_speed_up_suggestions(monkeypatch):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=125)])
-    )
+    fake_datetime = _fixed_datetime([t0, t0 + timedelta(seconds=125)])
+    monkeypatch.setattr(tools_note_drafts, "datetime", fake_datetime)
+    monkeypatch.setattr(tools_note_review, "datetime", fake_datetime)
 
     note = _generate_note()
     reviewed = server.reject_encounter_note(
@@ -350,9 +353,9 @@ def test_approve_encounter_note_idempotent_replay_reuses_stored_documentation_ti
     monkeypatch,
 ):
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        server, "datetime", _fixed_datetime([t0, t0 + timedelta(seconds=150)])
-    )
+    fake_datetime = _fixed_datetime([t0, t0 + timedelta(seconds=150)])
+    monkeypatch.setattr(tools_note_drafts, "datetime", fake_datetime)
+    monkeypatch.setattr(tools_note_review, "datetime", fake_datetime)
 
     note = _generate_note()
     first = server.approve_encounter_note(note_id=note.note_id)
@@ -849,7 +852,8 @@ def test_fetch_patient_from_ehr_epic_happy_path(monkeypatch):
         "name": [{"family": "Lopez"}],
     }
     monkeypatch.setattr(
-        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+        tools_patient,
+        "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
     )
 
     result = _run(
@@ -887,7 +891,8 @@ def test_fetch_patient_from_ehr_oracle_health_raises_and_logs_failure():
 
 def test_fetch_patient_from_ehr_not_found_raises_and_logs_failure(monkeypatch):
     monkeypatch.setattr(
-        server, "fetch_patient", lambda fhir_patient_id, correlation_id: None
+        tools_patient,
+        "fetch_patient", lambda fhir_patient_id, correlation_id: None
     )
 
     with pytest.raises(ResourceNotFoundError):
@@ -907,7 +912,7 @@ def test_fetch_patient_from_ehr_upstream_error_raises_and_logs_failure(monkeypat
     def _raise(fhir_patient_id, correlation_id):
         raise server.EpicFHIRError("simulated network failure")
 
-    monkeypatch.setattr(server, "fetch_patient", _raise)
+    monkeypatch.setattr(tools_patient, "fetch_patient", _raise)
 
     with pytest.raises(ToolError):
         _run(
@@ -958,7 +963,8 @@ def test_fetch_patient_from_ehr_emits_progress_without_a_total_when_a_token_is_p
 ):
     fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3"}
     monkeypatch.setattr(
-        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+        tools_patient,
+        "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
     )
     ctx = _FakeCtx(with_progress_token=True)
 
@@ -978,7 +984,8 @@ def test_fetch_patient_from_ehr_emits_progress_without_a_total_when_a_token_is_p
 def test_fetch_patient_from_ehr_emits_no_progress_without_a_token(monkeypatch):
     fake_patient = {"resourceType": "Patient", "id": "e63wRTbPfr1p8UW81d8Seiw3"}
     monkeypatch.setattr(
-        server, "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
+        tools_patient,
+        "fetch_patient", lambda fhir_patient_id, correlation_id: fake_patient
     )
     ctx = _FakeCtx(with_progress_token=False)
 
@@ -1161,7 +1168,7 @@ def test_read_transcript_file_unknown_file_raises_resource_not_found(tmp_path):
 
 
 def test_read_transcript_file_rejects_oversized_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "MAX_TRANSCRIPT_FILE_BYTES", 10)
+    monkeypatch.setattr(tools_patient, "MAX_TRANSCRIPT_FILE_BYTES", 10)
     allowed = tmp_path / "allowed"
     allowed.mkdir()
     big_file = allowed / "big.txt"
@@ -1375,7 +1382,7 @@ def test_prioritize_care_gaps_emits_no_progress_without_a_token():
 
 def test_check_github_issue_status_found_open_issue(monkeypatch):
     monkeypatch.setattr(
-        server,
+        tools_github,
         "get_issue_or_pr",
         lambda issue_number, correlation_id: {
             "found": True,
@@ -1399,7 +1406,7 @@ def test_check_github_issue_status_found_open_issue(monkeypatch):
 
 def test_check_github_issue_status_found_pull_request(monkeypatch):
     monkeypatch.setattr(
-        server,
+        tools_github,
         "get_issue_or_pr",
         lambda issue_number, correlation_id: {
             "found": True,
@@ -1420,7 +1427,8 @@ def test_check_github_issue_status_found_pull_request(monkeypatch):
 
 def test_check_github_issue_status_not_found(monkeypatch):
     monkeypatch.setattr(
-        server, "get_issue_or_pr", lambda issue_number, correlation_id: {"found": False}
+        tools_github,
+        "get_issue_or_pr", lambda issue_number, correlation_id: {"found": False}
     )
 
     result = _run(server.check_github_issue_status(issue_number=999999, ctx=_FakeCtx()))
@@ -1435,7 +1443,7 @@ def test_check_github_issue_status_times_out_returns_result_not_raise(monkeypatc
     def _raise_timeout(issue_number, correlation_id):
         raise httpx.TimeoutException("simulated timeout")
 
-    monkeypatch.setattr(server, "get_issue_or_pr", _raise_timeout)
+    monkeypatch.setattr(tools_github, "get_issue_or_pr", _raise_timeout)
 
     result = _run(server.check_github_issue_status(issue_number=1, ctx=_FakeCtx()))
 
@@ -1449,7 +1457,7 @@ def test_check_github_issue_status_upstream_error_returns_result_not_raise(monke
     def _raise_upstream(issue_number, correlation_id):
         raise server.GitHubAPIError("GitHub API rejected the request (status 500).")
 
-    monkeypatch.setattr(server, "get_issue_or_pr", _raise_upstream)
+    monkeypatch.setattr(tools_github, "get_issue_or_pr", _raise_upstream)
 
     result = _run(server.check_github_issue_status(issue_number=1, ctx=_FakeCtx()))
 
@@ -1466,7 +1474,7 @@ def test_check_github_issue_status_unexpected_error_returns_result_not_raise(
     def _raise_unexpected(issue_number, correlation_id):
         raise RuntimeError("something nobody named ahead of time")
 
-    monkeypatch.setattr(server, "get_issue_or_pr", _raise_unexpected)
+    monkeypatch.setattr(tools_github, "get_issue_or_pr", _raise_unexpected)
 
     result = _run(server.check_github_issue_status(issue_number=1, ctx=_FakeCtx()))
 
@@ -1484,7 +1492,7 @@ def test_check_github_issue_status_never_leaks_a_credential_or_host_in_the_error
             "GitHub API rejected the request (status 401): bad credentials for token ghp_fake123"
         )
 
-    monkeypatch.setattr(server, "get_issue_or_pr", _raise_upstream)
+    monkeypatch.setattr(tools_github, "get_issue_or_pr", _raise_upstream)
 
     result = _run(server.check_github_issue_status(issue_number=1, ctx=_FakeCtx()))
 
@@ -1566,7 +1574,7 @@ def test_append_audit_entry_write_failure_raises_tool_error_not_swallowed(
     # append mode fails with OSError on both Windows and POSIX, simulating a
     # real write failure (disk full, permission denied) without needing a
     # platform-specific chmod trick.
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path)
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path)
 
     with pytest.raises(ToolError, match="audit trail"):
         server.generate_encounter_note(
@@ -1583,7 +1591,7 @@ def _raw_append_audit_entry(entry: dict):
     in server.py -- used only to simulate a corrupted/hand-edited audit
     trail for the compliance-check failure-path tests below. No tool in this
     server can produce these entries itself; that's the point."""
-    with server.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
 

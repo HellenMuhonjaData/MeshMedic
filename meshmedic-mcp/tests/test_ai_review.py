@@ -8,19 +8,20 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 import ai_suggestions
 import review_tracking
+import app_core
 import server
 from ai_suggestions import ReferralSuggestion, TestOrderSuggestion
 
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 def _entries():
-    if not server.AUDIT_LOG_PATH.exists():
+    if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with server.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 

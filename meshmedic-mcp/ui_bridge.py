@@ -34,7 +34,14 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from note_drafting import CONFIDENCE_INSTRUCTIONS, DRAFT_OUTPUT_SCHEMA, DraftContractError, parse_draft
+import runtime_config
+from note_drafting import (
+    CONFIDENCE_INSTRUCTIONS,
+    DRAFT_OUTPUT_SCHEMA,
+    DraftContractError,
+    parse_draft,
+)
+from passthrough_policy import is_passthrough_allowed
 
 ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "ui" / "static"
@@ -116,6 +123,13 @@ async def call_tool(request: Request) -> JSONResponse:
     message, not swallowed and not raised as a bridge-side 500.
     """
     tool_name = request.path_params["tool_name"]
+    if not is_passthrough_allowed(tool_name):
+        # Checked before anything else: a refused tool never reaches the MCP
+        # server, so nothing is executed or written to the audit trail.
+        return JSONResponse(
+            {"error": f"{tool_name!r} cannot be called from the browser through this route."},
+            status_code=403,
+        )
     try:
         arguments = await request.json()
     except Exception:
@@ -286,4 +300,10 @@ app = Starlette(routes=routes, middleware=middleware, lifespan=_lifespan)
 
 
 if __name__ == "__main__":
+    # Refuse to start if this configuration is not approved (e.g. real-data
+    # mode without a signed-off readiness file). See runtime_config.py.
+    try:
+        runtime_config.load_config(os.environ)
+    except runtime_config.ConfigError as exc:
+        raise SystemExit(f"MeshMedic will not start: {exc}") from exc
     uvicorn.run(app, host="127.0.0.1", port=8420)

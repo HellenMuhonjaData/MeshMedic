@@ -8,6 +8,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 import provenance
+import app_core
 import server
 
 TRANSCRIPT = (
@@ -29,13 +30,13 @@ NOTE = (
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 def _entries():
-    if not server.AUDIT_LOG_PATH.exists():
+    if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with server.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -221,7 +222,7 @@ def test_compliance_flags_a_presentation_with_an_invalid_label():
     for e in corrupted:
         if e["action"] == provenance.PRESENT_ACTION:
             e["sources"][0]["source"] = "unknown"
-    server.AUDIT_LOG_PATH.write_text(
+    app_core.AUDIT_LOG_PATH.write_text(
         "".join(json.dumps(e) + "\n" for e in corrupted), encoding="utf-8"
     )
     result = server.run_compliance_check()
@@ -239,7 +240,7 @@ def test_compliance_flags_a_presentation_with_no_note():
         "note_id": "ghost",
         "sources": [],
     }
-    server.AUDIT_LOG_PATH.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+    app_core.AUDIT_LOG_PATH.write_text(json.dumps(entry) + "\n", encoding="utf-8")
     control = next(
         c
         for c in server.run_compliance_check().controls
@@ -260,12 +261,12 @@ def test_unknown_note_raises_and_logs_nothing():
 
 def test_audit_write_failure_presents_nothing():
     note = _note()
-    os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD)
+    os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD)
     try:
         with pytest.raises(ToolError, match="audit trail"):
             server.label_information_sources(note_id=note.note_id)
     finally:
-        os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
+        os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
     assert _presented() == []
 
 

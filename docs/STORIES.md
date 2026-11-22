@@ -54,3 +54,18 @@ system rather than a part of it.
 - **[STORY-010](stories/STORY-010.md)** — Ensure compliance with healthcare standards _(waits on STORY-007, STORY-008)_
 - **[STORY-011](stories/STORY-011.md)** — Prepare follow-up documentation for clinician review _(waits on STORY-010)_
 - **[STORY-012](stories/STORY-012.md)** — Distinguish between encounter-supported and AI-generated information _(waits on STORY-010)_
+
+## Async copilot · Phases 0–8
+
+**Goal:** A clinician finishes the last patient and finds most documentation prepared, needing only a short, focused review.
+**Done when you can show:** Background-processed encounters reviewed by exception and signed individually by an authenticated clinician, with no autonomous clinical actions.
+
+- **[STORY-013](stories/STORY-013.md)** — Foundations for the asynchronous copilot (Phase 0)
+- **[STORY-014](stories/STORY-014.md)** — Clinician identity, authorization and note sign-off (Phase 1) _(waits on STORY-013)_
+- **[STORY-015](stories/STORY-015.md)** — Background encounter processing and review queue (Phase 2) _(waits on STORY-014)_
+- **[STORY-016](stories/STORY-016.md)** — Structured notes and review-by-exception (Phase 3) _(waits on STORY-015)_
+- **[STORY-017](stories/STORY-017.md)** — Explainable ICD-10 codes with per-code decisions (Phase 4) _(waits on STORY-016)_
+- **[STORY-018](stories/STORY-018.md)** — Clinician-authorized tests and follow-up (Phase 5) _(waits on STORY-014, STORY-015)_
+- **[STORY-019](stories/STORY-019.md)** — Chart-aware care gaps with source attribution (Phase 6) _(waits on STORY-016)_
+- **[STORY-020](stories/STORY-020.md)** — AI referral letters from signed notes (Phase 7) _(waits on STORY-014, STORY-016)_
+- **[STORY-021](stories/STORY-021.md)** — End-of-day and after-hours reporting (Phase 8) _(waits on STORY-014, STORY-015)_

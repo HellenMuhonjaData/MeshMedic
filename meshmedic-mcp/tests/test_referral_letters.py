@@ -9,12 +9,14 @@ from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import TypeAdapter, ValidationError
 
 import referral_letters
+import app_core
 import server
+import tools_referrals
 
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 @pytest.fixture
@@ -25,19 +27,19 @@ def read_only_log():
 
     @contextmanager
     def _ctx():
-        os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD)
+        os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD)
         try:
             yield
         finally:
-            os.chmod(server.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
+            os.chmod(app_core.AUDIT_LOG_PATH, stat.S_IREAD | stat.S_IWRITE)
 
     return _ctx
 
 
 def _entries():
-    if not server.AUDIT_LOG_PATH.exists():
+    if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with server.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -124,7 +126,7 @@ def test_generate_refuses_a_rejected_note():
 
 def test_generate_fails_when_patient_cannot_be_resolved(monkeypatch):
     note = _note()
-    monkeypatch.setattr(server, "_find_patient", lambda ehr_system, patient_id: None)
+    monkeypatch.setattr(tools_referrals, "_find_patient", lambda ehr_system, patient_id: None)
 
     with pytest.raises(ToolError, match="could not be resolved"):
         _letter(note.note_id)
@@ -332,7 +334,7 @@ def test_compliance_check_catches_a_double_approved_letter():
 
 
 def _raw(entry):
-    with server.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
+    with app_core.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 
 

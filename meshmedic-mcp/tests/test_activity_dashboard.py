@@ -7,6 +7,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 import activity_dashboard as dash
+import app_core
 import server
 
 NOW = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)  # a Wednesday
@@ -14,7 +15,7 @@ NOW = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)  # a Wednesday
 
 @pytest.fixture(autouse=True)
 def isolated_audit_log(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
+    monkeypatch.setattr(app_core, "AUDIT_LOG_PATH", tmp_path / "audit_log.jsonl")
 
 
 def _e(ts, action, **extra):
@@ -232,10 +233,10 @@ def test_dashboard_is_read_only_and_returns_no_text():
         note_text="Secret note words.",
         confidence=0.9,
     )
-    before = server.AUDIT_LOG_PATH.read_text(encoding="utf-8")
+    before = app_core.AUDIT_LOG_PATH.read_text(encoding="utf-8")
     first = server.get_activity_summary(period="week")
     second = server.get_activity_summary(period="week")
-    assert server.AUDIT_LOG_PATH.read_text(encoding="utf-8") == before
+    assert app_core.AUDIT_LOG_PATH.read_text(encoding="utf-8") == before
     flat = json.dumps(first.model_dump())
     assert "Secret" not in flat and "epic-pt-10293847" not in flat
     assert first.model_dump(exclude={"generated_at"}) == second.model_dump(
