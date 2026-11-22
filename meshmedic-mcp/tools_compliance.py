@@ -8,10 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ai_suggestions
+import app_core
+import integrity_controls
 import provenance
 import referral_letters
 from app_core import _append_audit_entry, _logger, mcp
-from audit_queries import _all_audit_entries
 from logging_utils import TOOL_COMPLETED, TOOL_STARTED, log_event, new_correlation_id
 from models import ComplianceCheckResult, ComplianceControlResult
 
@@ -338,13 +339,29 @@ def run_compliance_check() -> ComplianceCheckResult:
         tool="run_compliance_check",
     )
 
-    entries = _all_audit_entries()
-    controls = [
-        _check_audit_completeness(entries),
-        _check_single_decision_integrity(entries),
-        _check_security_incident_logging(entries),
-        _check_no_phi_in_structured_logs(),
-    ]
+    integrity, entries = integrity_controls.check_audit_integrity(app_core.AUDIT_LOG_PATH)
+    if entries is not None:
+        controls = [
+            integrity,
+            _check_audit_completeness(entries),
+            _check_single_decision_integrity(entries),
+            _check_security_incident_logging(entries),
+            integrity_controls.check_no_autonomous_clinical_actions(entries),
+            _check_no_phi_in_structured_logs(),
+        ]
+    else:
+        # The trail can't be trusted, so the controls that read it are reported
+        # as not evaluated (failed), never as passing.
+        controls = [
+            integrity,
+            *(integrity_controls.unreadable(cid, desc) for cid, desc in (
+                ("REQ-006-audit-completeness", "Every clinician decision has a matching drafted entry."),
+                ("REQ-014-single-decision-integrity", "Every item has at most one clinician decision."),
+                ("REQ-011-security-incident-logging", "Every security incident is fully logged."),
+                ("REQ-019-no-autonomous-clinical-actions", "No clinician-only action by the AI or system."),
+            )),
+            _check_no_phi_in_structured_logs(),
+        ]
     all_passed = all(control.passed for control in controls)
     checked_at = datetime.now(timezone.utc).isoformat()
 

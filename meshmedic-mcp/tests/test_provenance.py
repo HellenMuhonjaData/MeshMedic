@@ -7,8 +7,9 @@ import stat
 import pytest
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
-import provenance
 import app_core
+import audit_store
+import provenance
 import server
 
 TRANSCRIPT = (
@@ -36,8 +37,7 @@ def isolated_audit_log(tmp_path, monkeypatch):
 def _entries():
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def _presented():
@@ -222,9 +222,12 @@ def test_compliance_flags_a_presentation_with_an_invalid_label():
     for e in corrupted:
         if e["action"] == provenance.PRESENT_ACTION:
             e["sources"][0]["source"] = "unknown"
-    app_core.AUDIT_LOG_PATH.write_text(
-        "".join(json.dumps(e) + "\n" for e in corrupted), encoding="utf-8"
-    )
+    # Rewrite the trail as a buggy writer would have (encrypted and chained),
+    # so this tests the label rule itself rather than tamper detection.
+    app_core.AUDIT_LOG_PATH.unlink()
+    audit_store.head_path(app_core.AUDIT_LOG_PATH).unlink(missing_ok=True)
+    for e in corrupted:
+        audit_store.append(app_core.AUDIT_LOG_PATH, e)
     result = server.run_compliance_check()
     control = next(
         c for c in result.controls if c.control_id == "REQ-006-audit-completeness"

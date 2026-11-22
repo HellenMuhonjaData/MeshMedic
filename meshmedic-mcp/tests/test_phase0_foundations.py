@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 
 import app_core
 import audit_actor
+import audit_store
 import auth_sessions
 import bridge_auth
 import encounters
@@ -34,7 +35,7 @@ def isolated_audit_log(tmp_path, monkeypatch):
 
 def _entries():
     path = app_core.AUDIT_LOG_PATH
-    return [json.loads(line) for line in path.open(encoding="utf-8")] if path.exists() else []
+    return audit_store.read_entries(path)
 
 
 # ---------- 0.2 pass-through allowlist ----------

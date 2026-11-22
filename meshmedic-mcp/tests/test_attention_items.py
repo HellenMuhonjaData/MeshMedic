@@ -9,8 +9,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-import attention_items
 import app_core
+import attention_items
+import audit_store
 import server
 
 GRACE = ("epic", "epic-pt-10293847")
@@ -24,8 +25,7 @@ def isolated_audit_log(tmp_path, monkeypatch):
 def _entries():
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def _note(confidence=0.9, reason=None):

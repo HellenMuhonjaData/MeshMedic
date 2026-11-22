@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 import app_core
 import attestation
+import audit_store
 import auth_sessions
 import clinician_registry
 import item_status
@@ -35,7 +36,7 @@ def isolated(tmp_path, monkeypatch):
 
 def _entries():
     path = app_core.AUDIT_LOG_PATH
-    return [json.loads(line) for line in path.open(encoding="utf-8")] if path.exists() else []
+    return audit_store.read_entries(path)
 
 
 def _key():
@@ -92,7 +93,7 @@ def test_attestation_signed_with_another_key_is_refused(tmp_path):
 def test_no_public_key_means_nothing_can_be_signed(monkeypatch, tmp_path):
     note = _reviewed_note()
     token = _sign_token(note.note_id, note.note_text)
-    monkeypatch.setenv("MESHMEDIC_ATTESTATION_KEY_DIR", str(tmp_path / "empty"))
+    (attestation.key_dir() / attestation.PUBLIC_KEY_NAME).unlink()
     with pytest.raises(ToolError, match="not configured"):
         server.sign_encounter_note(note_id=note.note_id, content_hash=attestation.content_hash(note.note_text),
                                    attestation_token=token)

@@ -17,6 +17,7 @@ _PROTECTED_NAMES = {
     "clinicians.json",
     "epic_fhir_private_key.pem",
     "audit_log.jsonl",
+    "audit_log.jsonl.head",
     "phi_readiness.signed.json",
     attestation.PRIVATE_KEY_NAME,
     attestation.PUBLIC_KEY_NAME,

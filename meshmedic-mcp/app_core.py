@@ -3,7 +3,6 @@
 Split out of server.py (Phase 0, no behaviour change).
 """
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 import audit_actor
+import audit_store
 from logging_utils import (
     TOOL_ERROR,
     configure_json_logging,
@@ -100,9 +100,9 @@ def _append_audit_entry(entry: dict) -> None:
     # anything else is a person acting without an authenticated identity.
     entry.setdefault("actor", dict(audit_actor.UNVERIFIED))
     try:
-        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError as e:
+        # Encrypted, chained, append-only (audit_store.py).
+        audit_store.append(AUDIT_LOG_PATH, entry)
+    except (OSError, audit_store.AuditIntegrityError) as e:
         log_event(
             _logger,
             "error",

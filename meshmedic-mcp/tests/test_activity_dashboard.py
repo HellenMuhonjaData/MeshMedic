@@ -245,7 +245,7 @@ def test_dashboard_is_read_only_and_returns_no_text():
 
 
 def test_review_outcomes_are_counted():
-    review = lambda outcome, unread=False: {"outcome": outcome, "possibly_unread": unread}  # noqa: E731
+    review = lambda outcome, unread=False: {"outcome": outcome, "possibly_unread": unread}
     entries = [
         _e("2026-10-28T09:00:00+00:00", "approve_note", review=review("approved_as_is", unread=True)),
         _e("2026-10-28T09:05:00+00:00", "approve_codes", review=review("approved_with_edits")),

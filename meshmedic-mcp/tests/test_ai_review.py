@@ -1,14 +1,14 @@
 """AI suggestions -> clinician review: was it approved as-is, edited, or entered by hand?"""
 
-import json
 from datetime import datetime, timedelta
 
 import pytest
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 
 import ai_suggestions
-import review_tracking
 import app_core
+import audit_store
+import review_tracking
 import server
 from ai_suggestions import ReferralSuggestion, TestOrderSuggestion
 
@@ -21,8 +21,7 @@ def isolated_audit_log(tmp_path, monkeypatch):
 def _entries():
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def _note(source="ai"):

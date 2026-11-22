@@ -61,6 +61,7 @@ real data. It is not that decision.
 - Synthetic data only, enforced at startup.
 - An append-only audit trail of AI output and clinician actions, with who acted (`actor`) on every new entry.
 - No patient data in structured logs (checked by `run_compliance_check`).
+- The audit trail is encrypted at rest entry by entry (AES-256-GCM), append-only and tamper-evident (hash chain, sequence numbers, head record, anchor over pre-encryption records); the compliance check verifies it (Phase 2).
 - The browser cannot call clinician-only actions through the generic tool route.
 - Clinician sign-in (Phase 1): salted, hashed passwords and signing PINs; sessions with CSRF protection; lockout after 5 failed sign-ins or PINs; every sign-in event in the audit trail.
 - Signing a note is server-enforced and clinician-only: it needs an attestation the web app issues only after PIN re-entry, bound to that note and its exact reviewed text. AI clients cannot sign.
@@ -69,5 +70,5 @@ real data. It is not that decision.
 
 - Server-enforced authorization for orders, final code decisions and referral sending (Phases 4, 5, 7).
 - Encrypted audio storage with retention and logged deletion (Phase 2).
-- Encryption at rest for the audit trail (Phase 2), plus a key backup and recovery procedure.
+- A backup and recovery procedure for the audit encryption key (`.secrets/audit_aes256gcm.key`); losing it makes encrypted audit entries unreadable.
 - Backups, monitoring and an operational owner for the machine MeshMedic runs on.

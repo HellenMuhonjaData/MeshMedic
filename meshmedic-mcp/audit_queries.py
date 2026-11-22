@@ -3,9 +3,8 @@
 Split out of server.py (Phase 0, no behaviour change).
 """
 
-import json
-
 import app_core
+import audit_store
 from sample_patients import SAMPLE_PATIENTS
 
 
@@ -26,17 +25,15 @@ def _find_note(note_id: str) -> dict | None:
     generated = None
     latest_edit = None
     decision = None
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("note_id") != note_id:
-                continue
-            if entry["action"] == "generate_note":
-                generated = entry
-            elif entry["action"] == "edit_note":
-                latest_edit = entry
-            elif entry["action"] in ("approve_note", "reject_note"):
-                decision = entry
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("note_id") != note_id:
+            continue
+        if entry["action"] == "generate_note":
+            generated = entry
+        elif entry["action"] == "edit_note":
+            latest_edit = entry
+        elif entry["action"] in ("approve_note", "reject_note"):
+            decision = entry
     if generated is None:
         return None
     return {"generated": generated, "latest_edit": latest_edit, "decision": decision}
@@ -58,15 +55,13 @@ def _find_suggestion(suggestion_id: str) -> dict | None:
         return None
     suggested = None
     decision = None
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("suggestion_id") != suggestion_id:
-                continue
-            if entry["action"] == "suggest_codes":
-                suggested = entry
-            elif entry["action"] in ("approve_codes", "reject_codes"):
-                decision = entry
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("suggestion_id") != suggestion_id:
+            continue
+        if entry["action"] == "suggest_codes":
+            suggested = entry
+        elif entry["action"] in ("approve_codes", "reject_codes"):
+            decision = entry
     if suggested is None:
         return None
     return {"suggested": suggested, "decision": decision}
@@ -80,15 +75,13 @@ def _find_gap(gap_id: str) -> dict | None:
         return None
     identified = None
     addressed = None
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("gap_id") != gap_id:
-                continue
-            if entry["action"] == "identify_care_gap":
-                identified = entry
-            elif entry["action"] == "address_care_gap":
-                addressed = entry
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("gap_id") != gap_id:
+            continue
+        if entry["action"] == "identify_care_gap":
+            identified = entry
+        elif entry["action"] == "address_care_gap":
+            addressed = entry
     if identified is None:
         return None
     return {"identified": identified, "addressed": addressed}
@@ -105,15 +98,13 @@ def _open_care_gaps_for_patient(patient_id: str) -> list[dict]:
         return []
     identified: dict[str, dict] = {}
     addressed_ids: set[str] = set()
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("patient_id") != patient_id:
-                continue
-            if entry["action"] == "identify_care_gap":
-                identified[entry["gap_id"]] = entry
-            elif entry["action"] == "address_care_gap":
-                addressed_ids.add(entry["gap_id"])
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("patient_id") != patient_id:
+            continue
+        if entry["action"] == "identify_care_gap":
+            identified[entry["gap_id"]] = entry
+        elif entry["action"] == "address_care_gap":
+            addressed_ids.add(entry["gap_id"])
     return [gap for gap_id, gap in identified.items() if gap_id not in addressed_ids]
 
 
@@ -124,15 +115,13 @@ def _find_order(order_id: str) -> dict | None:
         return None
     ordered = None
     resulted = None
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("order_id") != order_id:
-                continue
-            if entry["action"] == "order_test":
-                ordered = entry
-            elif entry["action"] == "record_test_result":
-                resulted = entry
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("order_id") != order_id:
+            continue
+        if entry["action"] == "order_test":
+            ordered = entry
+        elif entry["action"] == "record_test_result":
+            resulted = entry
     if ordered is None:
         return None
     return {"ordered": ordered, "resulted": resulted}
@@ -147,15 +136,13 @@ def _orders_for_patient(patient_id: str) -> tuple[list[dict], list[dict]]:
         return [], []
     ordered: dict[str, dict] = {}
     resulted: dict[str, dict] = {}
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry.get("patient_id") != patient_id:
-                continue
-            if entry["action"] == "order_test":
-                ordered[entry["order_id"]] = entry
-            elif entry["action"] == "record_test_result":
-                resulted[entry["order_id"]] = entry
+    for entry in audit_store.read_entries(app_core.AUDIT_LOG_PATH):
+        if entry.get("patient_id") != patient_id:
+            continue
+        if entry["action"] == "order_test":
+            ordered[entry["order_id"]] = entry
+        elif entry["action"] == "record_test_result":
+            resulted[entry["order_id"]] = entry
     pending = [o for oid, o in ordered.items() if oid not in resulted]
     done = [
         {"ordered": ordered[oid], "resulted": r}
@@ -173,8 +160,7 @@ def _all_audit_entries() -> list[dict]:
     re-opening the file per control."""
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def used_attestation_nonces() -> set[str]:

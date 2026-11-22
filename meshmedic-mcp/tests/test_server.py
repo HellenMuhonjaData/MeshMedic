@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,8 +17,9 @@ from mcp_types import (
     TextContent,
 )
 
-import github_client
 import app_core
+import audit_store
+import github_client
 import server
 import tools_github
 import tools_note_drafts
@@ -76,8 +76,7 @@ def isolated_audit_log(tmp_path, monkeypatch):
 def _read_audit_entries():
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def test_generate_encounter_note_happy_path():
@@ -1591,8 +1590,7 @@ def _raw_append_audit_entry(entry: dict):
     in server.py -- used only to simulate a corrupted/hand-edited audit
     trail for the compliance-check failure-path tests below. No tool in this
     server can produce these entries itself; that's the point."""
-    with app_core.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    audit_store.append(app_core.AUDIT_LOG_PATH, entry)
 
 
 def test_log_event_violations_detects_a_forbidden_key_in_a_synthetic_snippet():
@@ -1651,13 +1649,15 @@ def test_run_compliance_check_all_pass_on_a_clean_normal_audit_trail():
     result = server.run_compliance_check()
 
     assert result.all_passed is True
-    assert len(result.controls) == 4
+    assert len(result.controls) == 6
     assert all(control.passed for control in result.controls)
     assert {c.control_id for c in result.controls} == {
         "REQ-006-audit-completeness",
         "REQ-014-single-decision-integrity",
         "REQ-011-security-incident-logging",
         "REQ-011-no-phi-in-structured-logs",
+        "REQ-025-audit-trail-integrity",
+        "REQ-019-no-autonomous-clinical-actions",
     }
 
     entries = _read_audit_entries()

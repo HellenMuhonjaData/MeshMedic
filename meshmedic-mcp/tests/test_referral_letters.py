@@ -1,6 +1,5 @@
 """STORY-011 / REQ-004: referral letters prepared for clinician review."""
 
-import json
 import os
 import stat
 
@@ -8,8 +7,9 @@ import pytest
 from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from pydantic import TypeAdapter, ValidationError
 
-import referral_letters
 import app_core
+import audit_store
+import referral_letters
 import server
 import tools_referrals
 
@@ -39,8 +39,7 @@ def read_only_log():
 def _entries():
     if not app_core.AUDIT_LOG_PATH.exists():
         return []
-    with app_core.AUDIT_LOG_PATH.open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    return audit_store.read_entries(app_core.AUDIT_LOG_PATH)
 
 
 def _note(approve=True):
@@ -334,8 +333,7 @@ def test_compliance_check_catches_a_double_approved_letter():
 
 
 def _raw(entry):
-    with app_core.AUDIT_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    audit_store.append(app_core.AUDIT_LOG_PATH, entry)
 
 
 # --- Ready-to-send queue and recording delivery ------------------------------
